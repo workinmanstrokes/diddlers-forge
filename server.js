@@ -36,8 +36,9 @@ const IS_WIN = process.platform === 'win32';
 
 const DEFAULT_SETTINGS = {
   ollamaUrl: arg('ollama', process.env.OLLAMA_URL || 'http://127.0.0.1:11434'),
-  codeModel: '', fastModel: '', roles: { architect: '', coder: '', debugger: '', qa: '' },
+  codeModel: '', fastModel: '', roles: { architect: '', coder: '', debugger: '', qa: '', critic: '' },
   numCtx: 16384, temperature: 0.4, maxOutput: 8192, autoFix: 1, mode: 'smart', noThink: true, keepAlive: '15m', planFirst: true,
+  autopilot: true, autoApproveSecs: 15, autoImprove: 1, playtestSecs: 20,
 };
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -345,6 +346,8 @@ async function servePlay(res, u, id, tag, file) {
     const mode = u.searchParams.get('acs'); const rid = Number(u.searchParams.get('rid') || 0);
     let head = '', headEnd = '', bodyEnd = '';
     if (mode === 'test') head = '<script>' + Harness.testScript(rid, String(u.searchParams.get('type') || '')) + '</script>';
+    else if (mode === 'playtest') head = '<script>' + Harness.playtestScript(rid, String(u.searchParams.get('type') || ''), Number(u.searchParams.get('secs') || 20)) + '</script>';
+    else if (mode === 'layout') head = '<script>' + Harness.layoutScript(rid) + '</script>';
     else if (mode === 'preview') head = '<script>' + Harness.previewScript(rid, await readJsonFile(path.join(pdir(id), 'pvls.json'), {})) + '</script>';
     else if (['prod', 'staging', 'dev'].includes(tag)) { headEnd = pwaHead(p); bodyEnd = SW_REG; }
     return send(res, 200, Build.prepare(buf.toString('utf8'), { head, headEnd, bodyEnd }), { ...H, 'content-type': MIME['.html'] });
@@ -580,6 +583,9 @@ async function handle(req, res) {
       settings.numCtx = Math.max(2048, Math.min(262144, Number(settings.numCtx) || 16384));
       settings.maxOutput = Math.max(1024, Math.min(32768, Number(settings.maxOutput) || 8192));
       settings.autoFix = Math.max(0, Math.min(5, Number(settings.autoFix) || 0));
+      settings.autoImprove = Math.max(0, Math.min(3, Number(settings.autoImprove) || 0));
+      settings.autoApproveSecs = Math.max(0, Math.min(120, Number(settings.autoApproveSecs) || 0));
+      settings.playtestSecs = Math.max(8, Math.min(60, Number(settings.playtestSecs) || 20));
       await saveSettings(); return send(res, 200, settings);
     }
     if (p === '/api/usage') {
@@ -638,6 +644,18 @@ async function handle(req, res) {
         }
       }
       if (rest === 'versions' && m === 'POST') return send(res, 200, await addVersion(id, await readJson(req)));
+      const rm = rest.match(/^versions\/(\d+)\/report\/(playtest|review)$/);
+      if (rm) {
+        const n = Number(rm[1]); const f = path.join(pdir(id), 'reports', n + '-' + rm[2] + '.json');
+        if (m === 'GET') { const r = await readJsonFile(f, null); return r ? send(res, 200, r) : send(res, 404, { error: 'No report' }); }
+        const t = await readBody(req, 4e6); const data = JSON.parse(t || '{}'); await writeFileAtomic(f, JSON.stringify(data));
+        const out = await withLock(id, async () => {
+          const cur = await getProject(id); const v = cur.versions.find((/** @type {any} */ x) => x.n === n);
+          if (v) v[rm[2]] = rm[2] === 'playtest' ? { score: data.score, findings: (data.findings || []).length, ts: Date.now() } : { scores: data.scores || null, ts: Date.now() };
+          await saveProject(cur); return cur;
+        });
+        return send(res, 200, { ok: true, version: out.versions.find((/** @type {any} */ x) => x.n === n) });
+      }
       const vm = rest.match(/^versions\/(\d+)(\/tests|\/file)?$/);
       if (vm) {
         const n = Number(vm[1]);

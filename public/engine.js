@@ -271,6 +271,58 @@ Make a build plan as JSON:
     return out;
   }
 
+  // ---------- Critic: constructive review from real playtest data + the code ----------
+  const CRITIC_SCHEMA = {
+    type: 'object',
+    properties: {
+      summary: { type: 'string' },
+      scores: { type: 'object', properties: { fun: { type: 'number' }, polish: { type: 'number' }, balance: { type: 'number' }, performance: { type: 'number' } } },
+      strengths: { type: 'array', items: { type: 'string' } },
+      suggestions: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, why: { type: 'string' }, how: { type: 'string' },
+        impact: { type: 'string', enum: ['high', 'medium', 'low'] }, effort: { type: 'string', enum: ['small', 'medium', 'large'] }, area: { type: 'string' } }, required: ['title', 'why', 'how', 'impact', 'effort'] } },
+    },
+    required: ['summary', 'scores', 'strengths', 'suggestions'],
+  };
+  /** @param {Record<string,string>} files @param {'game'|'app'} type @param {any} plan @param {string} report */
+  function criticMessages(files, type, plan, report) {
+    const game = type !== 'app';
+    return [
+      { role: 'system', content: `You are a senior mobile ${game ? 'game designer' : 'product and UX designer'} reviewing a build. Be honest, specific and constructive: say what is good, then what would make it clearly ${game ? 'more fun, fair and satisfying' : 'more useful, clear and delightful'}. Base criticism on the measured playtest and the actual code, not guesses. Reply with JSON only.` },
+      { role: 'user', content: `${filesBlock(files)}${plan && plan.features && plan.features.length ? '\nPlanned features:\n' + plan.features.map((f) => '- ' + f).join('\n') + '\n' : ''}
+Automated ${game ? 'playtest (a bot played it on a phone screen)' : 'usability test (a bot used it on a phone screen)'}:
+${report}
+
+Return JSON:
+{"summary":"one honest sentence","scores":{"fun":1-10,"polish":1-10,"balance":1-10,"performance":1-10},"strengths":["2-3 specific things that work"],
+"suggestions":[{"title":"short imperative","why":"what the ${game ? 'player' : 'user'} experiences now","how":"concrete change in the code","impact":"high|medium|low","effort":"small|medium|large","area":"${game ? 'gameplay|difficulty|feel|visual|performance|ux' : 'ux|visual|feature|performance|content'}"}]}
+Give 4-6 suggestions, most valuable first; measured problems come first. ${game ? 'For balance: 10 = perfectly fair ramp.' : 'Use "fun" for how pleasant it is and "balance" for how easy it is to use.'} Only suggest things doable in this code (no servers, accounts or downloaded assets).` },
+    ];
+  }
+  /** @param {any} raw */
+  function normalizeReview(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const n = (/** @type {any} */ v) => Math.max(1, Math.min(10, Math.round(Number(v) || 5)));
+    const sc = r.scores || {};
+    const sugg = (Array.isArray(r.suggestions) ? r.suggestions : []).filter((x) => x && (x.title || x.how)).slice(0, 8).map((x) => ({
+      title: String(x.title || x.how).slice(0, 90), why: String(x.why || '').slice(0, 260), how: String(x.how || '').slice(0, 400),
+      impact: ['high', 'medium', 'low'].includes(x.impact) ? x.impact : 'medium', effort: ['small', 'medium', 'large'].includes(x.effort) ? x.effort : 'medium', area: String(x.area || '').slice(0, 20),
+    }));
+    return { summary: String(r.summary || '').slice(0, 300), scores: { fun: n(sc.fun), polish: n(sc.polish), balance: n(sc.balance), performance: n(sc.performance) },
+      strengths: (Array.isArray(r.strengths) ? r.strengths : []).map((x) => String(x).slice(0, 160)).filter(Boolean).slice(0, 4), suggestions: sugg };
+  }
+  /** pick what Autopilot applies: measured high problems + best value AI ideas (max 3) */
+  function pickImprovements(/** @type {any} */ review, /** @type {any} */ report) {
+    const picks = [];
+    for (const f of (report && report.findings) || []) if (f.sev === 'high' && picks.length < 2) picks.push({ title: f.text, how: f.fix });
+    const rank = (/** @type {any} */ s) => ({ high: 0, medium: 1, low: 2 })[s.impact] * 3 + ({ small: 0, medium: 1, large: 3 })[s.effort];
+    for (const s of ((review && review.suggestions) || []).slice().sort((a, b) => rank(a) - rank(b))) {
+      if (picks.length >= 3) break; if (s.effort === 'large' || s.impact === 'low') continue; picks.push({ title: s.title, how: s.how });
+    }
+    return picks;
+  }
+  const improveRequest = (/** @type {string} */ type, /** @type {{title:string,how:string}[]} */ picks) =>
+    `Improve the ${type} with these changes. Keep everything that already works:\n` + picks.map((p, i) => `${i + 1}. ${p.title}${p.how ? ' — ' + p.how : ''}`).join('\n');
+
   const estTokens = (/** @type {string} */ s) => Math.ceil(String(s || '').length / 3.4);
 
   // ---------- Ollama ----------
@@ -341,7 +393,7 @@ Make a build plan as JSON:
   }
 
   const api = { SYSTEM, buildMessages, editMessages, fixMessages, retryPatchMessages, planMessages, architectMessages, normalizePlan, planText, PLAN_SCHEMA, EST_OUT,
-    qaMessages, QA_SCHEMA, parseJson, extractHtml, extractFiles, parseBlocks, applyBlocks, applyToFiles, fuzzyFind, contextFiles, filesBlock, chat, estTokens, pickModels, stripThink };
+    qaMessages, QA_SCHEMA, criticMessages, CRITIC_SCHEMA, normalizeReview, pickImprovements, improveRequest, parseJson, extractHtml, extractFiles, parseBlocks, applyBlocks, applyToFiles, fuzzyFind, contextFiles, filesBlock, chat, estTokens, pickModels, stripThink };
   // @ts-ignore
   root.Engine = api;
   // @ts-ignore

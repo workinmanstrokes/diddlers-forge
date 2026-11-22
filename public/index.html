@@ -45,6 +45,7 @@
               <button data-mode="smart" class="active" title="Plan → approve → build → test → repair if broken.">🧠 Smart</button>
               <button data-mode="quality" title="Plan → approve → build step by step → test each step → feature review.">💎 Quality</button>
             </div>
+            <label class="ap-toggle" title="Autopilot runs every step for you — approve plan, build, test, fix, playtest, review, improve"><input type="checkbox" id="apToggle" checked><span>🤖 Autopilot</span></label>
             <button class="btn primary big" data-act="build">Build it <span>→</span></button>
           </div>
         </div>
@@ -137,6 +138,7 @@ Try: git init · npm init -y · node -v · npx prettier --write index.html
       </div>
 
       <div class="panel" data-panel="tests">
+        <div class="files-top"><div class="seg small" id="qaSeg"><button data-act="qa-view" data-qa="checks" class="active">✅ Checks</button><button data-act="qa-view" data-qa="playtest">🎮 Playtest</button><button data-act="qa-view" data-qa="review">🎯 Review</button></div></div>
         <div class="tests-head" id="testsHead"></div>
         <div class="tests-body" id="testsBody"></div>
       </div>

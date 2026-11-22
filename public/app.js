@@ -10,7 +10,7 @@
   const ago = (t) => { const s = (Date.now() - t) / 1000; return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago'; };
   const isPhone = () => window.matchMedia('(max-width: 899px)').matches;
   const today = () => new Date().toISOString().slice(0, 10);
-  const ROLE = { pm: ['🧭', 'PM'], architect: ['📐', 'Architect'], coder: ['👨‍💻', 'Coder'], qa: ['🧪', 'QA'], debugger: ['🩺', 'Debugger'], you: ['🙋', 'You'] };
+  const ROLE = { pm: ['🧭', 'PM'], architect: ['📐', 'Architect'], coder: ['👨‍💻', 'Coder'], qa: ['🧪', 'QA'], debugger: ['🩺', 'Debugger'], critic: ['🎯', 'Critic'], auto: ['🤖', 'Autopilot'], you: ['🙋', 'You'] };
 
   const TEMPLATES = [
     { type: 'game', e: '🚀', t: 'Space Blaster', p: 'Vertical space shooter: drag to steer the ship, auto-fire lasers, waves of enemy formations, power-ups (spread shot, shield), a boss every 5th wave, neon-on-black style with a parallax starfield.' },
@@ -31,13 +31,13 @@
     { type: 'app', e: '🔊', t: 'Soundboard', p: 'Soundboard with 12 big colorful pads, each plays a different synthesized sound (WebAudio, no files), record and play back a sequence, haptic feedback.' },
   ];
   const CHIPS = {
-    game: ['🐞 Fix bugs', '✨ Polish the visuals', '🔥 Make it harder over time', '⚡ Add power-ups', '🔊 More sound & juice', '🏆 Add levels', '🎨 New color theme'],
-    app: ['🐞 Fix bugs', '✨ Polish the design', '🌗 Add light/dark toggle', '📊 Add a stats screen', '🔍 Add search', '📤 Add share/export', '🎉 Add delight animations'],
+    game: ['🎯 Get feedback', '🐞 Fix bugs', '🎮 Playtest', '✨ Polish the visuals', '🔥 Make it harder over time', '⚡ Add power-ups', '🔊 More sound & juice', '🏆 Add levels', '🎨 New color theme'],
+    app: ['🎯 Get feedback', '🐞 Fix bugs', '🎮 Playtest', '✨ Polish the design', '🌗 Add light/dark toggle', '📊 Add a stats screen', '🔍 Add search', '📤 Add share/export', '🎉 Add delight animations'],
   };
   const MODE_HINTS = {
     quick: 'Builds straight away in one pass. Fewest tokens. Tests still run (free) but nothing is auto-fixed.',
-    smart: 'Architect plans → you approve → Coder builds → QA tests → Debugger fixes only if something broke.',
-    quality: 'Like Smart, but the Coder builds step by step with QA after each step, then QA checks every feature.',
+    smart: 'Architect plans → approve (Autopilot does it for you) → Coder builds → QA tests → Debugger fixes → bot playtests → Critic reviews → Autopilot applies the best ideas.',
+    quality: 'Like Smart, but built step by step with tests after every step, plus a check of every planned feature.',
   };
   const SUGGESTED = [
     ['qwen2.5-coder:7b', 'main coder · 16 GB RAM'], ['qwen2.5-coder:3b', 'quick edits · fastest'], ['qwen3:4b', 'planning'],
@@ -53,7 +53,7 @@
     settings: {}, health: null, models: [], projects: [], usage: null,
     p: null, n: 0, files: {}, binary: {}, viewN: 0, type: 'game', mode: 'smart',
     tab: 'chat', fview: 'editor', device: 'phone', rotated: false, busy: false, abort: null, job: null,
-    pvErrors: [], pvRid: 1, buf: {}, deleted: new Set(), cur: 'index.html', term: { running: false, ctl: null },
+    pvErrors: [], pvRid: 1, qaView: 'checks', rep: {}, cd: null, cdTimer: 0, buf: {}, deleted: new Set(), cur: 'index.html', term: { running: false, ctl: null },
   };
 
   // ---------- api ----------
@@ -168,7 +168,7 @@
   async function showHome() {
     document.body.classList.remove('in-work');
     $('#home').classList.remove('hidden'); $('#work').classList.add('hidden'); $('#bottomNav').classList.add('hidden'); $('#ptitle').classList.add('hidden');
-    S.p = null; $('#pvFrame').src = 'about:blank'; document.title = 'Diddler’s Forge';
+    clearInterval(S.cdTimer); S.cd = null; S.p = null; $('#pvFrame').src = 'about:blank'; document.title = 'Diddler’s Forge';
     await loadProjects();
   }
   async function loadProjects() { try { S.projects = await api('/projects'); } catch (e) { S.projects = []; } renderProjects(); }
@@ -226,7 +226,7 @@
     $$('#topTabs button,#bottomNav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     $$('.pane.left > .panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === tab));
     if (tab === 'code') { renderFiles(); if (S.fview === 'terminal') loadWorkspace(); }
-    if (tab === 'tests') loadActivity();
+    if (tab === 'tests') { loadActivity(); if (S.p && S.n) loadReports(S.n); }
     if (tab === 'preview') fitDevice();
     if (tab === 'chat') scrollChat();
   }
@@ -240,7 +240,7 @@
       return;
     }
     log.innerHTML = chat.map((m, i) => renderEntry(m, i)).join('');
-    scrollChat();
+    scrollChat(); startCountdown();
   }
   function timelineHtml(logs) {
     return (logs || []).map((l) => `<div class="tl ${l.level || ''}"><span class="tl-r">${(ROLE[l.role] || ['•'])[0]} ${(ROLE[l.role] || ['', l.role])[1]}</span><span class="tl-t">${esc(l.text)}</span></div>`).join('');
@@ -248,6 +248,7 @@
   function renderEntry(m, i) {
     if (m.role === 'user') return `<div class="msg user">${esc(m.text)}</div>`;
     if (m.kind === 'plan') return renderPlan(m, i);
+    if (m.kind === 'review') return renderReviewEntry(m, i);
     const icon = { build: '🛠️', edit: '✏️', fix: '🩹', error: '⚠️', info: 'ℹ️', cancel: '⏹' }[m.kind] || '🤖';
     const t = m.tests; const tags = [];
     if (m.version) tags.push(`<span class="tag">v${m.version}</span>`);
@@ -261,6 +262,19 @@
       ${m.text ? `<div class="jres">${esc(m.text)}</div>` : ''}${m.log && m.log.length ? `<details><summary>Agent activity (${m.log.length})</summary><div class="timeline">${timelineHtml(m.log)}</div></details>` : ''}
       ${m.raw ? `<details><summary>Model output</summary><pre>${esc(m.raw)}</pre></details>` : ''}
       ${tags.length ? `<div class="jmeta">${tags.join('')}</div>` : ''}${acts.length ? `<div class="jacts">${acts.join('')}</div>` : ''}</div>`;
+  }
+  const scoreBars = (sc, app) => [['fun', app ? 'Pleasant' : 'Fun'], ['polish', 'Polish'], ['balance', app ? 'Ease of use' : 'Balance'], ['performance', 'Speed']]
+    .map(([k, l]) => `<div class="sbar"><span>${l}</span><i><b style="width:${(sc[k] || 0) * 10}%"></b></i><em>${sc[k] || '–'}</em></div>`).join('');
+  const suggHtml = (s, act, k, extra) => `<div class="sugg-card"><div class="sg-top"><b>${esc(s.title)}</b><span class="tag ${s.impact === 'high' ? 'bad' : s.impact === 'medium' ? 'warn' : ''}">${esc(s.impact)} impact</span><span class="tag">${esc(s.effort)}</span></div>${s.why ? `<p class="muted">${esc(s.why)}</p>` : ''}${s.how ? `<p class="sg-how">💡 ${esc(s.how)}</p>` : ''}<button class="btn sm" data-act="${act}" data-k="${k}" ${extra || ''}>Apply</button></div>`;
+  function renderReviewEntry(m, i) {
+    const r = m.review; const app = S.p.type === 'app';
+    return `<div class="msg ai review"><div class="job-head"><span>🎯</span><b>Critic review · v${m.version}</b>${m.score != null ? `<span class="pill">playtest ${m.score}/100</span>` : ''}</div>
+      ${r.summary ? `<div class="jres">${esc(r.summary)}</div>` : ''}<div class="sbars">${scoreBars(r.scores, app)}</div>
+      ${r.strengths.length ? `<div class="strengths">${r.strengths.map((x) => `<div>✓ ${esc(x)}</div>`).join('')}</div>` : ''}
+      ${m.applied && m.applied.length ? `<div class="applied">🤖 Autopilot applied: ${esc(m.applied.join(' · '))}${m.after ? ` → v${m.after.n} (playtest ${m.after.score}/100)` : ''}</div>` : ''}
+      ${r.suggestions.slice(0, 3).map((s, k) => suggHtml(s, 'apply-sugg', k, `data-i="${i}"`)).join('')}
+      <div class="jacts">${r.suggestions.length > 3 ? `<button class="btn sm ghost" data-act="qa-open" data-v="review">See all ${r.suggestions.length} ideas</button>` : ''}<button class="btn sm primary" data-act="apply-top" data-i="${i}">✨ Apply top ideas</button></div>
+      ${m.log && m.log.length ? `<details><summary>Agent activity (${m.log.length})</summary><div class="timeline">${timelineHtml(m.log)}</div></details>` : ''}</div>`;
   }
   function renderChips() { $('#quickChips').innerHTML = S.n > 0 ? CHIPS[S.p.type === 'app' ? 'app' : 'game'].map((c) => `<button data-act="chip" data-t="${esc(c)}">${esc(c)}</button>`).join('') : ''; }
   async function saveChat() { try { await api('/projects/' + S.p.id, { method: 'PUT', body: { chat: S.p.chat } }); } catch (e) { /* non-fatal */ } }
@@ -285,6 +299,7 @@
       <div class="two"><div><div class="pf-label">Controls</div><input class="inp" data-pf="controls" value="${esc(p.controls)}"></div><div><div class="pf-label">Look</div><input class="inp" data-pf="look" value="${esc(p.look)}"></div></div>
       <div class="pf-label">Build steps</div><textarea class="inp" data-pf="tasks" rows="${Math.min(6, p.tasks.length + 1)}">${esc(p.tasks.join('\n'))}</textarea>
       <div class="pf-est">≈ ${fmtTok(est)} output tokens${eta ? ' · ' + esc(eta) : ' · speed is measured after your first run'}${S.mode === 'quality' && p.tasks.length > 1 ? ` · built in ${p.tasks.length} steps with tests between` : ''}</div>
+      ${S.settings.autopilot !== false && S.settings.autoApproveSecs > 0 ? `<div class="autobar" id="autobar-${i}">${m.paused ? '⏸ Autopilot paused — approve when you’re ready.' : `🤖 Autopilot approves in <b>${S.cd && S.cd.i === i ? S.cd.left : S.settings.autoApproveSecs}</b>s with the recommended answers <button class="btn sm ghost" data-act="plan-pause" data-i="${i}">Pause</button>`}</div>` : ''}
       <div class="jacts"><button class="btn primary" data-act="plan-approve" data-i="${i}">✅ Approve &amp; build</button><button class="btn" data-act="plan-redo" data-i="${i}">↻ New plan</button><button class="btn ghost" data-act="plan-cancel" data-i="${i}">Cancel</button></div></div>`;
   }
   function readPlanForm(i) {
@@ -336,6 +351,7 @@
           box.onclick = (e) => { const a = e.target.closest('[data-a]'); if (!a) return; if (a.dataset.a === 'diff') { box.dispatchEvent(new CustomEvent('diff')); return; } box.innerHTML = ''; box.onclick = null; resolve(a.dataset.a === 'yes'); };
         });
       },
+      note(t) { stats.textContent = t; },
       stop() { clearInterval(timer); el.remove(); },
     };
   }
@@ -343,6 +359,7 @@
     S.busy = b;
     $('#sendBtn').classList.toggle('hidden', b); $('#stopBtn').classList.toggle('hidden', !b); $('#chatInput').disabled = b;
     $$('[data-act=build],[data-act=chip],[data-act=retry],[data-act=plan-approve],[data-act=plan-redo]').forEach((x) => { x.disabled = b; });
+    if (!b) setTimeout(startCountdown, 0);
   }
 
   // ---------- model calls ----------
@@ -396,14 +413,17 @@
     if (dirtyCount() && kind !== 'build') await saveBuffers(true);
     const mode = args.mode || S.mode; const plan = args.plan || null;
     const stepMode = kind === 'build' && mode === 'quality' && plan && plan.tasks.length > 1;
-    const steps = kind === 'build' ? ['Write', ...(stepMode ? ['Steps'] : []), 'Test', 'Fix', ...(mode === 'quality' ? ['Review'] : [])] : ['Patch', 'Test', 'Fix'];
+    const ap = S.settings.autopilot !== false;
+    const playOn = kind === 'build' ? mode !== 'quick' : ap || mode === 'quality'; const critOn = kind === 'build' && mode !== 'quick' && (ap || mode === 'quality');
+    const steps = kind === 'build' ? ['Write', ...(stepMode ? ['Steps'] : []), 'Test', 'Fix', ...(mode === 'quality' ? ['Features'] : []), ...(playOn ? ['Play'] : []), ...(critOn ? ['Critique'] : []), ...(critOn && ap && S.settings.autoImprove ? ['Improve'] : [])]
+      : ['Patch', 'Test', 'Fix', ...(playOn ? ['Play'] : [])];
     const title = kind === 'build' ? 'Building ' + (plan ? plan.name : 'your ' + (args.type || S.p.type)) : kind === 'fix' ? 'Fixing problems' : 'Applying: ' + (args.request || '').slice(0, 50);
     S.abort = new AbortController(); S.job = { in: 0, out: 0, ms: 0, log: [] }; setBusy(true);
     const card = jobCard(title, steps);
     const entry = { role: 'ai', kind, title: '', text: '' };
     let lastRaw = '';
     try {
-      let files = { ...S.files }; let message = '';
+      let files = { ...S.files }; let message = ''; const before = { files: { ...S.files }, fail: ((curVersion() || {}).tests || { summary: { fail: 0 } }).summary.fail };
       if (kind === 'build') {
         const type = args.type || S.p.type;
         let brief = plan ? Engine.planText(plan) : '';
@@ -446,7 +466,7 @@
       tests = await debugLoop(tests, card, mode);
 
       if (mode === 'quality' && plan && plan.features.length && !tests.summary.fail) {
-        card.phase('Review', 300); card.log('qa', 'Checking every planned feature against the code');
+        card.phase('Features', 300); card.log('qa', 'Checking every planned feature against the code');
         try {
           const r = await call('qa', Engine.qaMessages(S.files, plan.features), card, { maxOut: 800, temperature: 0.1, format: Engine.QA_SCHEMA });
           const j = Engine.parseJson(r.text); const missing = j && Array.isArray(j.results) ? j.results.filter((x) => x && x.ok === false) : [];
@@ -461,12 +481,33 @@
         } catch (e) { if (e.name === 'AbortError') throw e; card.log('qa', 'Feature review skipped: ' + e.message, 'warn'); }
       }
 
+      if (kind !== 'build' && S.job.autoRewrite && tests.summary.fail > before.fail) {
+        await saveFiles(before.files, 'Reverted rewrite (tests got worse)', 'restore', ''); tests = await qaRun(S.n, card);
+        card.log('auto', 'The rewrite made tests worse — reverted to the previous code', 'warn'); entry.text = 'Rewrite reverted — tests got worse.';
+      }
+      let reviewEntry = null;
+      if (playOn && !tests.summary.fail) {
+        card.phase('Play', 100); let pt = await playtestAndStore(S.n, card);
+        if (critOn) {
+          card.phase('Critique', 700); const reviewedN = S.n; const rv = await critique(S.n, pt, card, plan);
+          if (rv) {
+            reviewEntry = { role: 'ai', kind: 'review', review: rv, version: reviewedN, score: pt.score, applied: [] };
+            const rounds = ap ? S.settings.autoImprove || 0 : 0;
+            for (let r = 0; r < rounds; r++) {
+              card.phase('Improve', 900);
+              const res = await autoImprove(rv, pt, tests, card, mode, args.idea || S.p.idea, r + 1, rounds);
+              if (!res) break; tests = res.tests; pt = res.pt;
+              if (res.kept) { reviewEntry.applied.push(...res.picks.map((x) => x.title)); reviewEntry.after = { n: S.n, score: pt.score }; } else break;
+            }
+          }
+        }
+      }
       const sum = tests.summary;
       entry.title = kind === 'build' ? `Built ${S.p.name}` : kind === 'fix' ? 'Fixed' : 'Updated';
       entry.text = [entry.text, sum.fail ? `${sum.fail} test${sum.fail > 1 ? 's' : ''} still failing — open Tests or tap “🐞 Fix bugs”.` : sum.warn ? 'Works — a few warnings in Tests.' : 'All tests passed.'].filter(Boolean).join(' ');
       entry.version = S.n; entry.tests = sum; entry.stats = { in: S.job.in, out: S.job.out, ms: S.job.ms }; entry.log = S.job.log.slice(-30);
       card.log('pm', `Done — v${S.n} saved${sum.fail ? ' with failing tests' : ''}`, sum.fail ? 'warn' : 'ok');
-      card.stop(); await pushChat(entry);
+      card.stop(); await pushChat(entry); if (reviewEntry) { reviewEntry.ts = Date.now(); S.p.chat.push(reviewEntry); renderChat(); await saveChat(); }
       renderChips(); toast(sum.fail ? 'Saved v' + S.n + ' — some tests failing' : 'v' + S.n + ' ready ✓', sum.fail ? 'bad' : 'good');
       if (isPhone() && !sum.fail) setTab('preview');
     } catch (e) {
@@ -539,6 +580,12 @@
     const onDiff = () => showDiffText(changed.map((p) => [p, oldFiles[p] || '', newFiles[p]]), 'Proposed rewrite');
     box.addEventListener('diff', onDiff);
     card.log('coder', 'Proposed a full rewrite — waiting for your approval', 'warn');
+    if (S.settings.autopilot !== false) {
+      box.removeEventListener('diff', onDiff);
+      if (S.job) S.job.autoRewrite = true;
+      card.log('auto', `Accepted the rewrite of ${changed.join(', ')} — it is reverted automatically if tests get worse`, 'warn');
+      return { files: newFiles, how: 'Rewrote ' + changed.join(', ') + ' (Autopilot, test-gated).', raw };
+    }
     const ok = await card.approve(html);
     box.removeEventListener('diff', onDiff);
     if (!ok) { card.log('you', 'Rejected the rewrite', 'warn'); throw new Error('Rewrite rejected — nothing was changed.'); }
@@ -786,9 +833,111 @@
     } catch (e) { toast(e.message, 'bad'); }
   }
 
+  // ---------- Playtester, Critic, Autopilot ----------
+  const planOf = () => { const m = ((S.p && S.p.chat) || []).filter((x) => x.kind === 'plan' && x.status === 'approved').pop(); return m ? m.plan : null; };
+  function storeReport(n, kind, data) {
+    S.rep[n] = { ...(S.rep[n] || {}), [kind]: data };
+    api(`/projects/${S.p.id}/versions/${n}/report/${kind}`, { method: 'POST', body: data }).then((r) => { const v = S.p.versions.find((x) => x.n === n); if (v && r.version) v[kind] = r.version[kind]; renderShip(); }).catch(() => {});
+  }
+  async function playtestAndStore(n, card) {
+    const secs = S.settings.playtestSecs || 20;
+    if (card) card.log('qa', S.p.type === 'app' ? 'Using the app like a person would: tabs, forms, buttons, then a reload' : `Playing it for ${secs}s: hands-off, random taps, then sweeping moves`);
+    const rep = await Tester.playtest({ id: S.p.id, tag: 'v' + n, type: S.p.type, orientation: S.p.orientation, secs, onStatus: (t) => card && card.note(t) });
+    rep.ts = Date.now(); rep.n = n; storeReport(n, 'playtest', rep);
+    if (card) card.log('qa', `Playtest ${rep.score}/100${rep.findings.length ? ' — ' + rep.findings[0].text.slice(0, 110) : ' — no problems found'}`, rep.score >= 85 ? 'ok' : rep.score >= 60 ? 'warn' : 'bad');
+    renderTests(); return rep;
+  }
+  async function critique(n, rep, card, plan) {
+    card.log('critic', 'Reviewing the playtest results and the code');
+    try {
+      const r = await call('critic', Engine.criticMessages(S.files, S.p.type, plan, Tester.reportText(rep)), card, { maxOut: 1300, temperature: 0.5, format: Engine.CRITIC_SCHEMA });
+      const raw = Engine.parseJson(r.text); if (!raw) throw new Error('the review was unreadable');
+      const rv = Engine.normalizeReview(raw); rv.ts = Date.now(); rv.n = n; storeReport(n, 'review', rv);
+      card.log('critic', `${rv.summary || 'Review ready'} · fun ${rv.scores.fun}/10 · polish ${rv.scores.polish}/10`, 'ok');
+      renderTests(); return rv;
+    } catch (e) { if (e.name === 'AbortError') throw e; card.log('critic', 'Review skipped: ' + e.message, 'warn'); return null; }
+  }
+  /** Autopilot: apply the best ideas, keep them only if tests and the playtest don't get worse. */
+  async function autoImprove(rv, pt, tests, card, mode, idea, round, rounds) {
+    const picks = Engine.pickImprovements(rv, pt);
+    if (!picks.length) { card.log('auto', 'Nothing worth changing automatically', 'ok'); return null; }
+    const before = { files: { ...S.files }, fail: tests.summary.fail, score: pt.score };
+    card.log('auto', `Round ${round}/${rounds}: ${picks.map((p) => p.title).join(' · ').slice(0, 170)}`);
+    const req = Engine.improveRequest(S.p.type, picks);
+    try {
+      const res = await patchFlow(S.files, Engine.editMessages(S.files, req, idea), req, card, 'coder');
+      const v = await saveFiles(res.files, 'Autopilot: ' + picks.map((p) => p.title).join('; ').slice(0, 120), 'edit', roleModel('coder'));
+      card.phase('Test'); let t2 = await qaRun(v.n, card); t2 = await debugLoop(t2, card, mode);
+      let reason = t2.summary.fail > before.fail ? 'tests got worse' : ''; let pt2 = pt;
+      if (!reason) { card.phase('Play'); pt2 = await playtestAndStore(S.n, card); if (!pt2.incomplete && pt2.score < before.score - 10) reason = `playtest dropped ${before.score} → ${pt2.score}`; }
+      if (reason) {
+        await saveFiles(before.files, `Reverted Autopilot change (${reason})`, 'restore', '');
+        const t3 = await qaRun(S.n, card); storeReport(S.n, 'playtest', { ...pt, n: S.n });
+        card.log('auto', `Reverted: ${reason}`, 'warn');
+        return { tests: t3, pt, kept: false, picks };
+      }
+      card.log('auto', `Kept — playtest ${before.score} → ${pt2.score}`, 'ok');
+      return { tests: t2, pt: pt2, kept: true, picks };
+    } catch (e) { if (e.name === 'AbortError') throw e; card.log('auto', 'Improvement skipped: ' + e.message, 'warn'); return null; }
+  }
+  async function runReview() {
+    if (S.busy || !ready() || !S.n) return;
+    S.abort = new AbortController(); S.job = { in: 0, out: 0, ms: 0, log: [] }; setBusy(true); setTab('chat');
+    const card = jobCard('Playtest & review', ['Play', 'Critique']);
+    try {
+      card.phase('Play', 100); const cached = S.rep[S.n] && S.rep[S.n].playtest;
+      const pt = cached || await playtestAndStore(S.n, card); if (cached) card.log('qa', `Using the playtest of v${S.n} (${pt.score}/100)`);
+      card.phase('Critique', 700); const rv = await critique(S.n, pt, card, planOf());
+      const log = S.job.log.slice(-20), stats = { in: S.job.in, out: S.job.out, ms: S.job.ms }; card.stop();
+      if (rv) await pushChat({ role: 'ai', kind: 'review', review: rv, version: S.n, score: pt.score, applied: [], log, stats });
+      else await pushChat({ role: 'ai', kind: 'error', title: 'Review failed', text: 'The Critic could not produce a review — try again or pick a different Critic model in Settings.', log });
+    } catch (e) {
+      card.stop(); await pushChat({ role: 'ai', kind: e.name === 'AbortError' ? 'cancel' : 'error', title: e.name === 'AbortError' ? 'Stopped' : 'Review failed', text: e.message });
+    } finally {
+      if (S.job && S.job.log.length) api(`/projects/${S.p.id}/activity`, { method: 'POST', body: { items: S.job.log } }).catch(() => {});
+      setBusy(false); S.abort = null; S.job = null;
+    }
+  }
+  let ptBusy = false;
+  async function runPlaytestOnly() {
+    if (!S.n || ptBusy || S.busy) return; ptBusy = true; toast('Playtesting… watch the little window');
+    try { const r = await playtestAndStore(S.viewN || S.n, null); S.qaView = 'playtest'; renderTests(); if (isPhone()) setTab('tests'); toast(`Playtest ${r.score}/100`, r.score >= 85 ? 'good' : r.score >= 60 ? '' : 'bad'); }
+    finally { ptBusy = false; }
+  }
+  /** Autopilot approves a waiting plan after a countdown (any edit to the plan pauses it). */
+  function startCountdown() {
+    clearInterval(S.cdTimer); S.cdTimer = 0;
+    if (!S.p || S.busy || S.settings.autopilot === false || !(S.settings.autoApproveSecs > 0)) return;
+    const chat = S.p.chat || []; const i = chat.findIndex((m) => m.kind === 'plan' && m.status === 'pending' && !m.paused);
+    if (i < 0) { S.cd = null; return; }
+    const pid = S.p.id;
+    if (!S.cd || S.cd.pid !== pid || S.cd.i !== i) S.cd = { pid, i, left: S.settings.autoApproveSecs };
+    const paint = () => { const b = $(`#autobar-${i} b`); if (b) b.textContent = String(Math.max(0, S.cd ? S.cd.left : 0)); };
+    paint();
+    S.cdTimer = setInterval(() => {
+      if (!S.p || S.p.id !== pid || S.busy || !S.cd) { clearInterval(S.cdTimer); return; }
+      S.cd.left--; paint();
+      if (S.cd.left <= 0) { clearInterval(S.cdTimer); S.cd = null; ACT['plan-approve']({ dataset: { i: String(i) } }); }
+    }, 1000);
+  }
+  function pausePlan(i) {
+    const m = S.p && S.p.chat[i]; if (!m || m.kind !== 'plan' || m.status !== 'pending' || m.paused) return;
+    readPlanForm(i); m.paused = true; clearInterval(S.cdTimer); S.cd = null;
+    const bar = $(`#autobar-${i}`); if (bar) bar.innerHTML = '⏸ Autopilot paused — approve when you’re ready.'; saveChat();
+  }
+
   // ---------- Tests panel + activity ----------
+  async function loadReports(n) {
+    const v = S.p.versions.find((x) => x.n === n); if (!v) return;
+    for (const k of ['playtest', 'review']) if (v[k] && !(S.rep[n] && S.rep[n][k])) { try { S.rep[n] = { ...(S.rep[n] || {}), [k]: await api(`/projects/${S.p.id}/versions/${n}/report/${k}`) }; } catch (e) { /* none */ } }
+    renderTests();
+  }
   function renderTests() {
-    const head = $('#testsHead'), body = $('#testsBody'); if (!S.p) return;
+    if (!S.p) return;
+    $$('#qaSeg button').forEach((b) => b.classList.toggle('active', b.dataset.qa === S.qaView));
+    if (S.qaView === 'playtest') return renderPlaytestView();
+    if (S.qaView === 'review') return renderReviewView();
+    const head = $('#testsHead'), body = $('#testsBody');
     const v = curVersion(); const t = v && v.tests;
     let html = '';
     if (!S.n) { head.innerHTML = '<div class="info"><h3>No build yet</h3><p class="muted">QA runs automatically after every build and edit.</p></div>'; }
@@ -806,6 +955,30 @@
     html += `<h3 class="sub-h">Error console &amp; agent activity</h3><div class="console" id="activityLog"><p class="muted">Loading…</p></div>`;
     body.innerHTML = html;
     renderActivity();
+  }
+  function latestRep(kind) { for (let n = S.n; n > 0; n--) { const r = S.rep[n] && S.rep[n][kind]; if (r) return r; } return null; }
+  function renderPlaytestView() {
+    const head = $('#testsHead'), body = $('#testsBody'); const r = (S.rep[S.n] && S.rep[S.n].playtest) || latestRep('playtest');
+    if (!S.n) { head.innerHTML = '<div class="info"><h3>No build yet</h3></div>'; body.innerHTML = ''; return; }
+    if (!r) { head.innerHTML = `<div class="info"><h3>Not playtested yet</h3><p class="muted">A bot ${S.p.type === 'app' ? 'uses the app like a person' : 'plays the game'} for ${S.settings.playtestSecs || 20}s and measures what happens. Free — no tokens.</p></div><button class="btn primary" data-act="playtest">🎮 Playtest now</button>`; body.innerHTML = ''; return; }
+    const col = r.score >= 85 ? 'var(--good)' : r.score >= 60 ? 'var(--warn)' : 'var(--bad)';
+    head.innerHTML = `<div class="score" style="background:conic-gradient(${col} ${r.score}%, var(--s2) 0)"><div style="width:58px;height:58px;border-radius:50%;background:var(--bg2);display:grid;place-items:center">${r.score}</div></div>
+      <div class="info"><h3>Playtest v${r.n}${r.n !== S.n ? ' (older)' : ''}: ${r.score >= 85 ? 'plays well' : r.score >= 60 ? 'needs work' : 'rough'}</h3><p class="muted">${r.mode === 'app' ? 'Used like a person' : 'Played'} for ${r.secs}s on a phone · ${r.findings.length} finding${r.findings.length === 1 ? '' : 's'} · ${ago(r.ts || Date.now())}</p></div>
+      <div class="row wrap"><button class="btn sm" data-act="playtest">↻ Play again</button>${r.findings.length ? '<button class="btn sm primary" data-act="fix-findings">🛠 Fix findings</button>' : ''}</div>`;
+    const sev = { high: 'bad', med: 'warn', low: '' };
+    body.innerHTML = (r.shots && r.shots.length ? `<div class="film">${r.shots.map((s) => `<figure><img src="${s.src}" alt=""><figcaption>${esc(s.label)}</figcaption></figure>`).join('')}</div>` : '') +
+      `<div class="metrics">${r.metrics.map((x) => `<div class="metric" title="${esc(x.hint || '')}"><b>${esc(x.v)}</b><span>${esc(x.k)}</span></div>`).join('')}</div>` +
+      `<h3 class="sub-h">Screen sizes</h3><div class="sizes">${r.layouts.map((l) => `<span class="tag ${l.failed || l.overX ? 'bad' : l.off || (r.mode === 'game' && l.overY) ? 'warn' : 'ok'}">${l.w}×${l.h} ${l.failed ? 'failed' : l.overX ? 'scrolls sideways' : l.off ? 'cut off' : '✓'}</span>`).join('')}</div>` +
+      `<h3 class="sub-h">Findings</h3>${r.findings.length ? r.findings.map((f, k) => `<div class="finding"><span class="tag ${sev[f.sev]}">${f.sev === 'med' ? 'medium' : f.sev}</span><div><b>${esc(f.area)}</b> — ${esc(f.text)}<p class="sg-how">💡 ${esc(f.fix)}</p></div><button class="btn sm" data-act="fix-finding" data-k="${k}">Fix</button></div>`).join('') : '<p class="muted">✅ Nothing to flag — it plays smoothly.</p>'}`;
+  }
+  function renderReviewView() {
+    const head = $('#testsHead'), body = $('#testsBody'); const r = (S.rep[S.n] && S.rep[S.n].review) || latestRep('review'); const app = S.p.type === 'app';
+    if (!S.n) { head.innerHTML = '<div class="info"><h3>No build yet</h3></div>'; body.innerHTML = ''; return; }
+    if (!r) { head.innerHTML = `<div class="info"><h3>No review yet</h3><p class="muted">The Critic reads the playtest results and your code, then gives honest, specific ideas to make it ${app ? 'more useful and polished' : 'more fun and polished'}. Uses your model (about 2–6k tokens).</p></div><button class="btn primary" data-act="review">🎯 Get feedback</button>`; body.innerHTML = ''; return; }
+    head.innerHTML = `<div class="info"><h3>Critic review · v${r.n}${r.n !== S.n ? ' (older)' : ''}</h3><p class="muted">${esc(r.summary)}</p><div class="sbars wide">${scoreBars(r.scores, app)}</div></div>
+      <div class="row wrap"><button class="btn sm" data-act="review">↻ New review</button><button class="btn sm primary" data-act="apply-top" data-src="qa">✨ Apply top ideas</button></div>`;
+    body.innerHTML = (r.strengths.length ? `<h3 class="sub-h">What works</h3><div class="strengths">${r.strengths.map((x) => `<div>✓ ${esc(x)}</div>`).join('')}</div>` : '') +
+      `<h3 class="sub-h">Ideas to make it better</h3>${r.suggestions.map((s, k) => suggHtml(s, 'apply-sugg', k, 'data-src="qa"')).join('')}`;
   }
   async function loadActivity() { if (!S.p) return; try { S.activity = await api(`/projects/${S.p.id}/activity`); } catch (e) { S.activity = []; } renderActivity(); }
   function renderActivity() {
@@ -840,7 +1013,7 @@
         const k = { build: '🛠️', edit: '✏️', fix: '🩹', manual: '⌨️', restore: '↺', import: '⬆', terminal: '⌨', libs: '📦' }[v.kind] || '•';
         const envTags = ['prod', 'staging'].filter((e) => envs[e] === v.n).map((e) => `<span class="envb ${e}">${e.toUpperCase()}</span>`).join(' ');
         const t = v.tests ? (v.tests.summary.fail ? '❌' : v.tests.summary.warn ? '⚠️' : '✅') : '';
-        return `<div class="vrow ${v.n === S.n ? 'cur' : ''}"><span class="vn">v${v.n}</span><span class="vm"><b>${k} ${esc(v.message)}</b><small>${ago(v.ts)}${v.tokens ? ' · ' + fmtTok((v.tokens.in || 0) + (v.tokens.out || 0)) + ' tok' : ''}${v.files > 1 ? ' · ' + v.files + ' files' : ''} ${t} ${envTags}</small></span>
+        return `<div class="vrow ${v.n === S.n ? 'cur' : ''}"><span class="vn">v${v.n}</span><span class="vm"><b>${k} ${esc(v.message)}</b><small>${ago(v.ts)}${v.tokens ? ' · ' + fmtTok((v.tokens.in || 0) + (v.tokens.out || 0)) + ' tok' : ''}${v.files > 1 ? ' · ' + v.files + ' files' : ''} ${t}${v.playtest ? ' 🎮' + v.playtest.score : ''} ${envTags}</small></span>
           <span class="va"><button class="icon-btn sm" data-act="view" data-n="${v.n}" title="Preview">👁</button>${v.n > 1 ? `<button class="icon-btn sm" data-act="diff" data-n="${v.n}" title="Changes">⇆</button>` : ''}${v.n !== S.n ? `<button class="icon-btn sm" data-act="restore" data-n="${v.n}" title="Restore">↺</button>` : ''}</span></div>`;
       }).join('') || '<p class="muted">No versions yet.</p>'}</div>
       <h3>Project</h3>
@@ -939,7 +1112,7 @@
         <div class="field"><label>Fast model (Architect &amp; QA)</label><select class="inp" id="sFast">${opts(s.fastModel)}</select></div></div>
         ${ram ? `<p class="hint">This PC has ${fmtBytes(ram)} RAM — models bigger than ~${fmtBytes(ram * 0.55)} are skipped for auto-pick.</p>` : ''}
         <details class="roles"><summary>Per-role models (advanced)</summary><p class="hint">On 16 GB machines, using one model for every role avoids reload time between steps.</p><div class="two">
-          ${['architect', 'coder', 'debugger', 'qa'].map((r) => `<div class="field"><label>${ROLE[r][0]} ${ROLE[r][1]}</label><select class="inp" data-role="${r}">${opts(roles[r], true)}</select></div>`).join('')}</div></details>
+          ${['architect', 'coder', 'debugger', 'qa', 'critic'].map((r) => `<div class="field"><label>${ROLE[r][0]} ${ROLE[r][1]}</label><select class="inp" data-role="${r}">${opts(roles[r], true)}</select></div>`).join('')}</div></details>
         <div class="field"><label>Download a model</label><div class="row"><input class="inp" id="sPull" placeholder="e.g. qwen2.5-coder:7b"><button class="btn primary" data-s="pull">Pull</button></div>
           <div class="sugg">${SUGGESTED.map(([n, h]) => `<button data-s="sugg" data-n="${n}" title="${h}">${n} <span class="muted">· ${h}</span></button>`).join('')}</div>
           <div class="pullbar hidden" id="pullBar"><i></i></div><span class="hint" id="pullTxt"></span></div></div>
@@ -952,6 +1125,12 @@
           <div class="field"><label>Max output tokens</label><select class="inp" id="sOut">${[4096, 6144, 8192, 12288].map((n) => `<option ${n === s.maxOutput ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
           <div class="field"><label>Creativity (temperature ${s.temperature})</label><input type="range" id="sTemp" min="0" max="1" step="0.05" value="${s.temperature}"></div>
           <div class="field"><label>Keep model loaded</label><select class="inp" id="sKeep">${['5m', '15m', '30m', '1h', '-1'].map((k) => `<option value="${k}" ${k === s.keepAlive ? 'selected' : ''}>${k === '-1' ? 'forever' : k}</option>`).join('')}</select></div>
+        </div>
+        <label class="sw"><span><b>🤖 Autopilot</b><br><span class="muted" style="font-size:13px">Runs every step for you: approves the plan after a countdown, accepts rewrites only if tests don’t get worse, playtests, asks the Critic, applies the best ideas and reverts anything that makes it worse. Promoting stays manual.</span></span><input type="checkbox" id="sAuto" ${s.autopilot !== false ? 'checked' : ''}></label>
+        <div class="two">
+          <div class="field"><label>Approve plans after</label><select class="inp" id="sApprove">${[[0, 'wait for me'], [10, '10 seconds'], [15, '15 seconds'], [30, '30 seconds'], [60, '1 minute']].map(([v, l]) => `<option value="${v}" ${v === s.autoApproveSecs ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+          <div class="field"><label>Improvement rounds after the review</label><select class="inp" id="sImprove">${[0, 1, 2, 3].map((n) => `<option ${n === s.autoImprove ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+          <div class="field"><label>Playtest length</label><select class="inp" id="sPlaySecs">${[12, 20, 30, 45].map((n) => `<option value="${n}" ${n === s.playtestSecs ? 'selected' : ''}>${n} seconds</option>`).join('')}</select></div>
         </div>
         <label class="sw"><span><b>Skip “thinking”</b><br><span class="muted" style="font-size:13px">Reasoning models (qwen3, deepseek-r1…) answer directly. Saves lots of tokens and time.</span></span><input type="checkbox" id="sNoThink" ${s.noThink ? 'checked' : ''}></label></div>
       <div class="fset"><h3>Phone</h3>${lan.length ? lan.map((l) => `<div class="lan"><span class="grow">${esc(l)}</span><button class="btn sm" data-s="copy" data-v="${esc(l)}">Copy</button></div>`).join('') : '<p class="muted">No Wi-Fi address found.</p>'}
@@ -974,6 +1153,7 @@
         S.settings = await api('/settings', { method: 'POST', body: {
           ollamaUrl: q('#sUrl').value.trim(), codeModel: q('#sCode').value, fastModel: q('#sFast').value, roles: rolesNew, autoFix: Number(q('#sFix').value), planFirst: q('#sPlan').checked,
           numCtx: Number(q('#sCtx').value), maxOutput: Number(q('#sOut').value), temperature: Number(q('#sTemp').value), keepAlive: q('#sKeep').value, noThink: q('#sNoThink').checked, mode: S.mode,
+          autopilot: q('#sAuto').checked, autoApproveSecs: Number(q('#sApprove').value), autoImprove: Number(q('#sImprove').value), playtestSecs: Number(q('#sPlaySecs').value),
         } });
         m.close(); toast('Settings saved', 'good'); refreshHealth();
       }
@@ -1002,6 +1182,7 @@
   }
 
   // ---------- actions ----------
+  function syncAutopilot() { const t = $('#apToggle'); if (t) t.checked = S.settings.autopilot !== false; }
   function setModeSeg() { $$('#modeSeg button').forEach((b) => b.classList.toggle('active', b.dataset.mode === S.mode)); $('#modeHint').textContent = MODE_HINTS[S.mode]; }
   const ACT = {
     home: () => { location.hash = ''; },
@@ -1013,18 +1194,37 @@
     tpl: (b) => { $('#ideaInput').value = b.dataset.p; $('#ideaInput').focus(); $('#home').scrollTo({ top: 0, behavior: 'smooth' }); },
     open: (b) => { location.hash = '#p=' + b.dataset.id; },
     retry: () => { if (!S.p || !S.p.idea) return; if (S.mode === 'quick' || S.settings.planFirst === false) runJob('build', { idea: S.p.idea, type: S.p.type, mode: S.mode }); else runPlan(S.p.idea, S.p.type); },
-    'plan-ans': (b) => { const m = S.p.chat[Number(b.dataset.i)]; readPlanForm(Number(b.dataset.i)); const q = m.plan.questions[Number(b.dataset.k)]; q.answer = q.answer === b.dataset.v ? '' : b.dataset.v; renderChat(); saveChat(); },
+    'plan-ans': (b) => { pausePlan(Number(b.dataset.i)); const m = S.p.chat[Number(b.dataset.i)]; readPlanForm(Number(b.dataset.i)); const q = m.plan.questions[Number(b.dataset.k)]; q.answer = q.answer === b.dataset.v ? '' : b.dataset.v; renderChat(); saveChat(); },
     'plan-approve': async (b) => {
       const i = Number(b.dataset.i); const m = S.p.chat[i]; const plan = readPlanForm(i);
       const unanswered = plan.questions.filter((q) => !q.answer); unanswered.forEach((q) => { q.answer = q.options[0] || ''; });
       m.status = 'approved'; m.plan = plan; renderChat(); await saveChat();
-      S.p.name = plan.name; S.p.emoji = plan.emoji; renderHeader(); api('/projects/' + S.p.id, { method: 'PUT', body: { name: plan.name, emoji: plan.emoji } }).catch(() => {});
+      S.p.name = plan.name; S.p.emoji = plan.emoji; if (plan.kind === 'app' || plan.kind === 'game') S.p.type = plan.kind; renderHeader(); api('/projects/' + S.p.id, { method: 'PUT', body: { name: plan.name, emoji: plan.emoji, type: S.p.type } }).catch(() => {});
       runJob('build', { idea: m.idea || S.p.idea, type: plan.kind || m.type || S.p.type, mode: S.mode, plan });
     },
     'plan-redo': (b) => { const m = S.p.chat[Number(b.dataset.i)]; m.status = 'replaced'; saveChat(); runPlan(m.idea || S.p.idea, m.type || S.p.type); },
+    'plan-pause': (b) => pausePlan(Number(b.dataset.i)),
+    'qa-view': (b) => { S.qaView = b.dataset.qa; renderTests(); if (S.p && S.n) loadReports(S.n); },
+    'qa-open': (b) => { S.qaView = b.dataset.v || 'review'; setTab('tests'); renderTests(); },
+    playtest: () => runPlaytestOnly(),
+    review: () => runReview(),
+    'apply-sugg': (b) => {
+      const r = b.dataset.src === 'qa' ? ((S.rep[S.n] && S.rep[S.n].review) || latestRep('review')) : S.p.chat[Number(b.dataset.i)].review;
+      const s = r && r.suggestions[Number(b.dataset.k)]; if (!s) return;
+      setTab('chat'); pushChat({ role: 'user', text: '✨ ' + s.title }); runJob('edit', { request: s.title + (s.how ? ' — ' + s.how : '') });
+    },
+    'apply-top': (b) => {
+      const r = b.dataset.src === 'qa' ? ((S.rep[S.n] && S.rep[S.n].review) || latestRep('review')) : S.p.chat[Number(b.dataset.i)].review;
+      const picks = Engine.pickImprovements(r, (S.rep[S.n] && S.rep[S.n].playtest) || latestRep('playtest')); if (!picks.length) return toast('No quick wins left — pick an idea and tap Apply');
+      setTab('chat'); pushChat({ role: 'user', text: '✨ Apply top ideas: ' + picks.map((p) => p.title).join(' · ') }); runJob('edit', { request: Engine.improveRequest(S.p.type, picks) });
+    },
+    'fix-finding': (b) => { const r = (S.rep[S.n] && S.rep[S.n].playtest) || latestRep('playtest'); const f = r && r.findings[Number(b.dataset.k)]; if (!f) return; setTab('chat'); pushChat({ role: 'user', text: '🛠 ' + f.text }); runJob('edit', { request: 'Playtest finding: ' + f.text + ' Fix: ' + f.fix }); },
+    'fix-findings': () => { const r = (S.rep[S.n] && S.rep[S.n].playtest) || latestRep('playtest'); const fs = r ? r.findings.filter((f) => f.sev !== 'low').slice(0, 4) : []; if (!fs.length) return toast('Only minor findings left'); setTab('chat'); pushChat({ role: 'user', text: '🛠 Fix playtest findings' }); runJob('edit', { request: 'Fix these problems found by playtesting:\n' + fs.map((f, i) => `${i + 1}. ${f.text} — ${f.fix}`).join('\n') }); },
     'plan-cancel': (b) => { const m = S.p.chat[Number(b.dataset.i)]; m.status = 'cancelled'; renderChat(); saveChat(); },
     chip: async (b) => {
       const t = b.dataset.t;
+      if (/Get feedback/.test(t)) return runReview();
+      if (/Playtest/.test(t)) return runPlaytestOnly();
       if (/Fix bugs/.test(t)) {
         const res = await testAndStore(S.n);
         if (res.problems.length) return runJob('fix', { problems: res.problems.slice(0, 8) });
@@ -1095,6 +1295,9 @@
       const md = e.target.closest('#modeSeg [data-mode]'); if (md) { S.mode = md.dataset.mode; localStorage.setItem('acs:mode', S.mode); setModeSeg(); }
       const dv = e.target.closest('#deviceSeg [data-device]'); if (dv) { S.device = dv.dataset.device; $$('#deviceSeg button').forEach((x) => x.classList.toggle('active', x === dv)); fitDevice(); }
     });
+    $('#apToggle').addEventListener('change', async (e) => { S.settings = await api('/settings', { method: 'POST', body: { autopilot: e.target.checked } }); toast(e.target.checked ? '🤖 Autopilot on — it runs every step for you' : 'Autopilot off — you approve each step', '', 3200); });
+    const planTouch = (e) => { const card = e.target.closest && e.target.closest('.msg.plan[data-plan]'); if (card && !e.target.closest('[data-act=plan-approve],[data-act=plan-redo],[data-act=plan-cancel]')) pausePlan(Number(card.dataset.plan)); };
+    $('#chatLog').addEventListener('focusin', planTouch); $('#chatLog').addEventListener('input', planTouch);
     $('#ideaInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ACT.build(); });
     $('#composer').addEventListener('submit', (e) => {
       e.preventDefault(); const t = $('#chatInput').value.trim(); if (!t || S.busy) return;
@@ -1147,7 +1350,7 @@
       await refreshHealth(); S.settings = await api('/settings');
       if (!localStorage.getItem('acs:mode') && S.settings.mode) { S.mode = S.settings.mode; setModeSeg(); }
     } catch (e) { toast('Studio server not reachable: ' + e.message, 'bad', 6000); }
-    loadModels(); loadUsage(); route();
+    syncAutopilot(); loadModels(); loadUsage(); route();
     setInterval(async () => { const was = S.health && S.health.ollama && S.health.ollama.ok; await refreshHealth(); if (!was && S.health.ollama.ok) loadModels(); }, 20000);
     if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
   }
