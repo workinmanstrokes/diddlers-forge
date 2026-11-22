@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<title>App Creator Studio</title>
+<meta name="description" content="Make apps and games with your local Ollama models — on phone or PC.">
+<meta name="theme-color" content="#0a0d18">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="tab-chat">
+<div id="app">
+  <header class="bar">
+    <button class="logo" data-act="home" aria-label="Home">
+      <span class="logo-mark">◆</span><span class="logo-text"><b>App Creator</b> Studio</span>
+    </button>
+    <div class="ptitle hidden" id="ptitle">
+      <span class="pt-emoji" id="ptEmoji"></span><span class="pt-name" id="ptName"></span><span class="pill" id="ptVer"></span>
+    </div>
+    <div class="bar-right">
+      <button class="chip-btn" data-act="usage" title="Monitor: CPU, RAM, model speed, tokens today"><span class="bolt">⚡</span><span id="usageTxt">0</span></button>
+      <button class="status" id="statusBtn" data-act="settings" title="Ollama connection"><i></i><span id="modelTxt">Connecting…</span></button>
+      <button class="icon-btn" data-act="settings" aria-label="Settings">⚙︎</button>
+    </div>
+  </header>
+
+  <!-- HOME -->
+  <main id="home" class="view">
+    <div class="home-inner">
+      <section class="hero">
+        <h1>What do you want to <span class="grad">make</span>?</h1>
+        <p class="sub">Describe it. Your local AI builds it, tests it on a phone screen, and fixes what breaks.</p>
+        <div class="seg" id="typeSeg" role="tablist">
+          <button class="active" data-type="game">🎮 Game</button>
+          <button data-type="app">📱 App</button>
+        </div>
+        <div class="prompt-box">
+          <textarea id="ideaInput" rows="3" placeholder="A 2D zombie survival game with shooting, enemy waves, health, upgrades and a boss fight…"></textarea>
+          <div class="prompt-foot">
+            <div class="seg small" id="modeSeg" title="How hard the AI works">
+              <button data-mode="quick" title="Build straight away. Fewest tokens.">⚡ Quick</button>
+              <button data-mode="smart" class="active" title="Plan → approve → build → test → repair if broken.">🧠 Smart</button>
+              <button data-mode="quality" title="Plan → approve → build step by step → test each step → feature review.">💎 Quality</button>
+            </div>
+            <button class="btn primary big" data-act="build">Build it <span>→</span></button>
+          </div>
+        </div>
+        <p class="mode-hint" id="modeHint"></p>
+      </section>
+
+      <section class="setup hidden" id="setupCard"></section>
+
+      <section>
+        <div class="sec-head"><h2>Start from an idea</h2></div>
+        <div class="templates" id="templates"></div>
+      </section>
+
+      <section>
+        <div class="sec-head"><h2>Your projects</h2>
+          <label class="btn ghost sm" title="Bring in an existing HTML game or app">⬆ Import HTML<input type="file" id="importFile" accept=".html,.htm,text/html" hidden></label>
+        </div>
+        <div class="projects" id="projects"></div>
+      </section>
+      <footer class="foot" id="homeFoot"></footer>
+    </div>
+  </main>
+
+  <!-- WORKSPACE -->
+  <main id="work" class="view hidden">
+    <section class="pane left">
+      <nav class="tabs" id="topTabs">
+        <button data-tab="chat" class="active">💬 Chat</button>
+        <button data-tab="code">🗂 Files</button>
+        <button data-tab="tests">🧪 Tests <em id="testsBadge"></em></button>
+        <button data-tab="ship">🚀 Ship</button>
+      </nav>
+
+      <div class="panel active" data-panel="chat">
+        <div class="chat-log" id="chatLog"></div>
+        <div class="chips" id="quickChips"></div>
+        <form class="composer" id="composer">
+          <textarea id="chatInput" rows="1" placeholder="Ask for a change…" enterkeyhint="send"></textarea>
+          <button type="submit" class="send" id="sendBtn" aria-label="Send">➤</button>
+          <button type="button" class="stop hidden" id="stopBtn" data-act="stop" aria-label="Stop">■</button>
+        </form>
+      </div>
+
+      <div class="panel" data-panel="code">
+        <div class="files-top">
+          <div class="seg small" id="fileSeg"><button data-fview="editor" class="active">📄 Editor</button><button data-fview="terminal">⌨ Terminal</button><button data-fview="libs">📦 Libraries</button></div>
+        </div>
+        <div class="fview" data-fview-panel="editor">
+          <aside class="explorer">
+            <div class="ex-head"><button class="ex-title" data-act="files-toggle">Files <span class="pill" id="filesCount">0</span></button>
+              <div class="ex-acts"><button class="icon-btn sm" data-act="file-new" title="New file">＋</button><label class="icon-btn sm" title="Upload files (images, sounds, data)">⬆<input type="file" id="uploadFile" multiple hidden></label></div></div>
+            <div class="file-list" id="fileList"></div>
+          </aside>
+          <div class="edpane">
+            <div class="code-bar">
+              <div class="code-file"><b id="curFile">index.html</b> <span class="muted" id="codeInfo"></span></div>
+              <div class="code-actions">
+                <button class="btn sm" data-act="code-run" title="Preview without saving">▶ Run</button>
+                <button class="btn sm primary" id="saveBtn" data-act="code-save" title="Save all changed files as a new version (Ctrl+S)">💾 Save</button>
+                <button class="icon-btn sm" data-act="code-revert" title="Discard edits to this file">↺</button>
+                <button class="icon-btn sm" data-act="file-rename" title="Rename / move">✎</button>
+                <button class="icon-btn sm" data-act="file-download" title="Download">⬇</button>
+                <button class="icon-btn sm" data-act="file-delete" title="Delete file">🗑</button>
+              </div>
+            </div>
+            <div class="editor" id="editor">
+              <div class="gutter" id="gutter"></div>
+              <div class="ed-wrap">
+                <pre class="hl" id="hl" aria-hidden="true"></pre>
+                <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off"></textarea>
+              </div>
+            </div>
+            <div class="binview hidden" id="binView"></div>
+            <p class="code-note">Kits (<code>kit/game.js</code>, <code>kit/app.js</code>, <code>kit/ui.css</code>) load automatically, so your code stays small. Every save is a version you can restore.</p>
+          </div>
+        </div>
+        <div class="fview hidden" data-fview-panel="terminal" id="termPanel">
+          <div class="term-lock hidden"><div class="big">🔒</div><p>The terminal runs commands on the PC, so it only works when you open the studio <b>on that PC</b>, or from your phone when the studio was started with a PIN (<code>--pin 1234</code>).</p></div>
+          <div class="term-ui">
+            <div class="term-head"><span class="muted">📁 <code id="termCwd">…</code></span><span class="grow"></span><button class="btn sm" id="termOpen" data-act="term-open">📂 Open folder</button></div>
+            <pre class="term-out" id="termOut"><span class="t-dim">This runs in a copy of your project (the workspace). Files you change here can be saved back as a new version.
+Try: git init · npm init -y · node -v · npx prettier --write index.html
+</span></pre>
+            <div class="term-changes hidden" id="termChanges"></div>
+            <div class="term-chips"><button data-act="term-chip" data-c="git status">git status</button><button data-act="term-chip" data-c="node -v">node -v</button><button data-act="term-chip" data-c="npm init -y">npm init -y</button><button data-act="term-chip" data-c="dir">dir</button><button data-act="term-chip" data-c="ls">ls</button><button data-act="term-chip" data-c="clear">clear</button></div>
+            <div class="term-in"><span class="prompt">›</span><input id="termIn" placeholder="Type a command…" autocapitalize="off" autocomplete="off" spellcheck="false"><button class="btn sm primary" id="termRun" data-act="term-run">Run</button><button class="btn sm danger hidden" id="termStop" data-act="term-stop">■ Stop</button></div>
+          </div>
+        </div>
+        <div class="fview hidden" data-fview-panel="libs" id="libsPanel"></div>
+      </div>
+
+      <div class="panel" data-panel="tests">
+        <div class="tests-head" id="testsHead"></div>
+        <div class="tests-body" id="testsBody"></div>
+      </div>
+
+      <div class="panel" data-panel="ship">
+        <div class="ship" id="ship"></div>
+      </div>
+    </section>
+
+    <section class="pane right panel" data-panel="preview">
+      <div class="pv-bar">
+        <div class="seg small" id="deviceSeg">
+          <button data-device="phone" class="active" title="Phone 390×844">Phone</button>
+          <button data-device="tablet" title="Tablet 820×1180">Tablet</button>
+          <button data-device="desktop" title="Fill the panel">Desktop</button>
+        </div>
+        <button class="icon-btn sm" data-act="rotate" title="Rotate">⟳</button>
+        <span class="pv-label" id="pvLabel"></span>
+        <div class="grow"></div>
+        <button class="icon-btn sm" data-act="reload" title="Restart">↻</button>
+        <button class="icon-btn sm" data-act="test" title="Run tests">🧪</button>
+        <a class="icon-btn sm" id="openTab" target="_blank" rel="noopener" title="Open full screen in a new tab">↗</a>
+      </div>
+      <div class="pv-banner hidden" id="pvBanner"></div>
+      <div class="pv-stage" id="pvStage">
+        <div class="device" id="device"><iframe id="pvFrame" title="App preview" sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-downloads" allow="autoplay; fullscreen"></iframe></div>
+        <div class="pv-empty hidden" id="pvEmpty"><div class="big">🛠️</div><p>Your app shows up here.</p></div>
+      </div>
+      <button class="pv-errors hidden" id="pvErrors" data-act="fix-preview"></button>
+    </section>
+  </main>
+
+  <nav class="bottom-nav hidden" id="bottomNav">
+    <button data-tab="chat" class="active"><b>💬</b><span>Chat</span></button>
+    <button data-tab="preview"><b>▶</b><span>Play</span></button>
+    <button data-tab="code"><b>🗂</b><span>Files</span></button>
+    <button data-tab="tests"><b>🧪</b><span>Tests</span><em id="testsBadge2"></em></button>
+    <button data-tab="ship"><b>🚀</b><span>Ship</span></button>
+  </nav>
+</div>
+<div id="modalRoot"></div>
+<div id="toasts"></div>
+<script src="shared/build.js"></script>
+<script src="shared/harness.js"></script>
+<script src="engine.js"></script>
+<script src="tester.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
