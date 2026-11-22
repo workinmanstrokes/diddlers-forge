@@ -1,4 +1,4 @@
-/* App Creator Studio — App Kit v1: tiny helpers so generated apps stay short.
+/* Diddler’s Forge — App Kit v1: tiny helpers so generated apps stay short.
  * Kit.app.$ / $$ / h(), store(), toast(), confirm(), sheet(), sfx(), haptic(), fmt, uid().
  * Auto-wires bottom tabs: <button data-tab="x"> shows <section data-page="x">. */
 (function () {

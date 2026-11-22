@@ -16,7 +16,7 @@ a{color:#b9a4ff}
 /* top bar */
 .bar{height:calc(var(--bar) + env(safe-area-inset-top));padding:env(safe-area-inset-top) 12px 0;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line);background:rgba(10,13,24,.72);backdrop-filter:blur(14px);flex:none;z-index:20}
 .logo{display:flex;align-items:center;gap:8px;border:0;background:none;padding:6px 4px;font-size:15px;white-space:nowrap}
-.logo-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:linear-gradient(135deg,var(--acc),var(--acc2));font-size:15px;box-shadow:0 4px 16px rgba(139,92,246,.45)}
+.logo-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:linear-gradient(135deg,var(--acc),var(--acc2));font-size:17px;font-weight:900;color:#fff;font-family:ui-rounded,system-ui,sans-serif;box-shadow:0 4px 16px rgba(139,92,246,.45)}
 .logo-text{color:var(--muted)}.logo-text b{color:var(--text);font-weight:800}
 .ptitle{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
 .pt-emoji{font-size:20px}.pt-name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

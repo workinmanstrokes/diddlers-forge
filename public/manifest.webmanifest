@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "App Creator Studio",
-  "short_name": "Creator",
+  "name": "Diddler’s Forge",
+  "short_name": "DiddlerForge",
   "description": "Make apps and games with your local Ollama models.",
   "start_url": "/",
   "scope": "/",

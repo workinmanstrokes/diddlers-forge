@@ -1,4 +1,4 @@
-/* App Creator Studio — UI Kit v1: polished mobile-first components for generated apps.
+/* Diddler’s Forge — UI Kit v1: polished mobile-first components for generated apps.
    Override the theme with :root{--accent:#22c55e} etc. Add class "light" on <body> for light mode. */
 :root{--bg:#0b0f1a;--bg-2:#10162a;--surface:#151c2e;--surface-2:#1c2540;--line:rgba(255,255,255,.08);--text:#eef2ff;--muted:#8d96ad;
 --accent:#7c5cff;--accent-2:#22d3ee;--good:#22c55e;--warn:#f59e0b;--bad:#ef4444;--radius:18px;--shadow:0 10px 30px rgba(0,0,0,.35);

@@ -1,5 +1,5 @@
 // @ts-check
-/* App Creator Studio — shared page preparation (browser + Node).
+/* Diddler’s Forge — shared page preparation (browser + Node).
  * prepare(): used when serving pages (kits load as real files from kit/…).
  * build():   used for the single-file HTML export (kits + local scripts/styles inlined).
  * Injected markup never contains newlines, so error line numbers match your file exactly. */

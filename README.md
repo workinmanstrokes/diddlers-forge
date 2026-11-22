@@ -1,4 +1,4 @@
-# App Creator Studio
+# Diddler’s Forge
 
 An all-in-one AI app and game maker that runs on **your own PC with Ollama**. You can use it from the PC or from your phone.
 Describe an idea. The **Architect** plans it and asks you questions, **you approve the plan**, the **Coder** builds it, **QA** tests it on a phone-sized screen, and the **Debugger** repairs whatever breaks. Every change is saved as a version, and you promote builds through **dev → staging → production**. Production installs on your phone as its own app.
@@ -16,13 +16,13 @@ No cloud, no API keys, no `npm install`. It's one Node server with zero dependen
    ollama pull qwen2.5-coder:3b
    ```
 3. Double-click **`Create Desktop Shortcut.bat`** once.
-4. Double-click **App Creator Studio** on your Desktop. A small window starts the server, and your browser opens `http://localhost:4848`.
+4. Double-click **Diddler’s Forge** on your Desktop. A small window starts the server, and your browser opens `http://localhost:4848`.
 
 | File | What it does |
 |---|---|
-| `Start App Creator Studio.bat` | Starts the studio and opens it. If it's already running, it just opens it. |
+| `Start Diddler’s Forge.bat` | Starts the studio and opens it. If it's already running, it just opens it. |
 | `Start with PIN (phone terminal).bat` | Asks for a PIN. It protects the studio on Wi-Fi and lets your phone use the terminal. |
-| `Stop App Creator Studio.bat` | Stops the studio. |
+| `Stop Diddler’s Forge.bat` | Stops the studio. |
 | `start.sh` | The same for Mac, Linux, or Android (Termux). |
 
 Keep the small console window open while you use the studio. There's also a **⏻ Stop studio** button in Monitor.

@@ -1,5 +1,5 @@
 {
-  "name": "app-creator-studio",
+  "name": "diddlers-forge",
   "version": "2.0.0",
   "description": "All-in-one AI app & game maker for local Ollama models — plan, build, test, repair, version and ship from your PC or phone.",
   "main": "server.js",

@@ -1,5 +1,5 @@
 // @ts-check
-/* App Creator Studio — QA test runner (free: runs locally, no model calls).
+/* Diddler’s Forge — QA test runner (free: runs locally, no model calls).
  * Static checks: referenced files exist, JavaScript syntax, offline-safe (no external files), bare imports.
  * Runtime checks (sandboxed phone-sized iframe, see shared/harness.js): loads cleanly, draws something,
  * reacts to taps/keys, survives random play, fits the screen, FPS, tap targets, text size, __selfTest(). */

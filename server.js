@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-check
-/* App Creator Studio — local server. Zero dependencies: `node server.js` (Node 18+).
+/* Diddler’s Forge — local server. Zero dependencies: `node server.js` (Node 18+).
  * - Serves the studio to your PC and your phone (same Wi-Fi)
  * - Proxies to Ollama, so Ollama itself can stay on localhost
  * - Multi-file projects with deduplicated version snapshots, dev/staging/prod environments
@@ -394,7 +394,7 @@ async function exportProject(/** @type {http.ServerResponse} */ res, /** @type {
   if (!files.has('sw.js')) out.push({ name: 'sw.js', data: Buffer.from(playSw('acs-play-' + p.id + '-export-', n)) });
   out.push({ name: 'icon.svg', data: Buffer.from(iconSvg(p)) });
   for (const ic of ['icon-192.png', 'icon-512.png']) { try { out.push({ name: ic, data: await fsp.readFile(path.join(pdir(p.id), ic)) }); } catch (e) { /* svg fallback */ } }
-  if (!files.has('README.md')) out.push({ name: 'README.md', data: Buffer.from('# ' + p.name + '\n\nMade with App Creator Studio (v' + n + ').\n\n## Put it online (GitHub Pages)\n' +
+  if (!files.has('README.md')) out.push({ name: 'README.md', data: Buffer.from('# ' + p.name + '\n\nMade with Diddler’s Forge (v' + n + ').\n\n## Put it online (GitHub Pages)\n' +
     '1. Create a repo on github.com and upload these files (or `git init && git add . && git commit -m "v' + n + '" && git push`).\n2. Settings → Pages → Deploy from branch → main / root.\n3. Open the Pages URL in Chrome on your phone → ⋮ → Install app.\n') });
   return send(res, 200, zip(out), { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="' + name + '-v' + n + '.zip"' });
 }
@@ -501,7 +501,7 @@ function openFolder(/** @type {string} */ dir) {
 // ---------- libraries: download approved files into vendor/ for offline use ----------
 async function download(/** @type {string} */ url) {
   if (!/^https?:\/\//i.test(url)) throw new Error('Only http(s) URLs');
-  const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30000), headers: { 'user-agent': 'AppCreatorStudio/' + VERSION } });
+  const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30000), headers: { 'user-agent': 'DiddlersForge/' + VERSION } });
   if (!r.ok) throw new Error('HTTP ' + r.status);
   const len = Number(r.headers.get('content-length') || 0); if (len > 15e6) throw new Error('File is over 15 MB');
   const buf = Buffer.from(await r.arrayBuffer()); if (buf.length > 15e6) throw new Error('File is over 15 MB');
@@ -743,7 +743,7 @@ async function main() {
   server.listen(PORT, HOST, async () => {
     const o = /** @type {any} */ (await ollamaPing());
     log('info', 'studio v' + VERSION + ' listening on ' + HOST + ':' + PORT + ', ollama ' + settings.ollamaUrl + (o.ok ? ' ok' : ' unreachable'));
-    console.log('\n  🛠️  App Creator Studio v' + VERSION);
+    console.log('\n  🛠️  Diddler’s Forge v' + VERSION);
     console.log('  PC:     http://localhost:' + PORT);
     for (const l of lanUrls()) console.log('  Phone:  ' + l + '   (same Wi-Fi)');
     console.log('  Ollama: ' + settings.ollamaUrl + (o.ok ? '  ✅ v' + (o.version || '?') : '  ❌ not reachable — start Ollama'));

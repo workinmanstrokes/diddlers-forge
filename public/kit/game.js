@@ -1,4 +1,4 @@
-/* App Creator Studio — Game Kit v1
+/* Diddler’s Forge — Game Kit v1
  * Gives every generated game: fit-to-screen canvas (any phone, no zoom), unified
  * touch/mouse/keyboard input, synth sound effects, particles, shake, floating text,
  * start / pause / game-over screens, HUD, best score. The model writes only game logic. */

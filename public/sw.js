@@ -1,5 +1,5 @@
-// App Creator Studio — offline shell. Network-first so studio updates show up right away.
-const C = 'acs-studio-v2';
+// Diddler’s Forge — offline shell. Network-first so studio updates show up right away.
+const C = 'acs-studio-v3';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'engine.js', 'tester.js', 'shared/build.js', 'shared/harness.js', 'kit/game.js', 'kit/app.js', 'kit/ui.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(C).then((c) => c.addAll(SHELL)).catch(() => {})); });
 self.addEventListener('activate', (e) => e.waitUntil(caches.keys().then((k) => Promise.all(k.filter((x) => x.startsWith('acs-studio-') && x !== C).map((x) => caches.delete(x)))).then(() => self.clients.claim())));

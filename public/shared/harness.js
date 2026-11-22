@@ -1,5 +1,5 @@
 // @ts-check
-/* App Creator Studio — scripts injected into apps for testing/preview (used by the server).
+/* Diddler’s Forge — scripts injected into apps for testing/preview (used by the server).
  * Everything is joined onto ONE line so injected code never shifts the app's line numbers:
  * an error on line 42 of the page is line 42 of your file. */
 (function (root) {

@@ -1,5 +1,5 @@
 // @ts-check
-/* App Creator Studio — generation engine: prompts, Ollama streaming, patch edits.
+/* Diddler’s Forge — generation engine: prompts, Ollama streaming, patch edits.
  * Token-saving design:
  *  1. Kits: the model writes only game/app logic (no loop/resize/input/menus/CSS boilerplate).
  *  2. One stable system prompt for every call → Ollama reuses its prompt cache (KV prefix).

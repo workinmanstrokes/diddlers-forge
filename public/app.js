@@ -1,4 +1,4 @@
-/* App Creator Studio — UI controller (PM/orchestrator for the agent roles lives here too) */
+/* Diddler’s Forge — UI controller (PM/orchestrator for the agent roles lives here too) */
 (() => {
   'use strict';
   const $ = (s, r = document) => r.querySelector(s);
@@ -168,7 +168,7 @@
   async function showHome() {
     document.body.classList.remove('in-work');
     $('#home').classList.remove('hidden'); $('#work').classList.add('hidden'); $('#bottomNav').classList.add('hidden'); $('#ptitle').classList.add('hidden');
-    S.p = null; $('#pvFrame').src = 'about:blank'; document.title = 'App Creator Studio';
+    S.p = null; $('#pvFrame').src = 'about:blank'; document.title = 'Diddler’s Forge';
     await loadProjects();
   }
   async function loadProjects() { try { S.projects = await api('/projects'); } catch (e) { S.projects = []; } renderProjects(); }
@@ -211,7 +211,7 @@
     if (!S.p) return;
     $('#ptEmoji').textContent = S.p.emoji || '🎮'; $('#ptName').textContent = S.p.name;
     $('#ptVer').textContent = S.n ? 'v' + S.n : 'plan';
-    document.title = S.p.name + ' · App Creator Studio';
+    document.title = S.p.name + ' · Diddler’s Forge';
     const v = curVersion(); const t = v && v.tests;
     for (const id of ['#testsBadge', '#testsBadge2']) {
       const b = $(id); if (!t) { b.textContent = ''; b.className = ''; continue; }
