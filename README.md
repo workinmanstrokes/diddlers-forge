@@ -6,7 +6,7 @@ Describe an idea. The **Architect** plans it and asks you questions, **you appro
 No cloud, no API keys, no `npm install`. It's one Node server with zero dependencies.
 
 ### New in 3.0: same quality, a fraction of the tokens
-- **⚡ 20 starter recipes:** finished, tested games and apps (space shooter, bullet-heaven zombie survival, endless runner, flappy, fruit catcher, brick breaker, snake, match-3, idle tycoon, a Michigan fishing game, 3-on-3 hockey, 3-on-3 basketball, tower defense, incremental tower defense, top-down racer, deckbuilder card battler, habit tracker, budget, interval timer and notes). Tap one to build it for **0 tokens**. If your idea matches one, the AI only re-themes and adjusts it, which takes about **1k output tokens instead of 3–7k**.
+- **⚡ 21 starter recipes:** finished, tested games and apps (space shooter, bullet-heaven zombie survival, endless runner, flappy, fruit catcher, brick breaker, snake, match-3, idle tycoon, a Michigan fishing game, 3-on-3 hockey, 3-on-3 basketball, tower defense, incremental tower defense, top-down racer, deckbuilder card battler, match-3 puzzle battle, habit tracker, budget, interval timer and notes). Tap one to build it for **0 tokens**. If your idea matches one, the AI only re-themes and adjusts it, which takes about **1k output tokens instead of 3–7k**.
 - **🎛 Tuner:** every starter keeps its colors, emoji, names, speeds and difficulty in one tuning block. Change them with sliders and color pickers, try 3 one-tap themes or 🎲 random colors, and watch a live preview. **No AI, 0 tokens.**
 - **Lean edits:** requests like “make it faster” or “blue theme” send only the tuning block (~300 tokens) instead of the whole file.
 - **Smarter cache use:** every role now shares one system prompt and the files always come first, so Ollama re-uses what it already read. The improvement step after a Critic review re-reads about 4% of its prompt instead of all of it.
@@ -108,6 +108,7 @@ Live CPU and RAM, which model is loaded (CPU vs GPU share, context, unload timer
 | 🏀 Hoop Rush | 3-on-3 basketball: dribble, pass, 2s and 3s, dunks, steals, blocks, 12 s shot clock, AI teammates, first to 21 | Arena Court · Street Court · Zoo Hoops |
 | 🏰 Tower Siege | Drag towers onto a grid, 4 towers (archer, splash, frost, chain) with 3 upgrade levels and sell, path waypoints, growing waves, bosses, early-wave gold | Castle Siege · Star Defense · Garden Guard |
 | 🛡️ Hold the Tower | Incremental tower defense (trending in 2026): one tower vs. a growing horde from every side, 8 in-run gold upgrades (splash, multishot, frost aura…), NOVA blast, boss every 10 waves, permanent crown workshop between runs | Castle Hold · Last Light · Star Base |
+| ⚔️ Gem Clash | Puzzle battle: match-3 where each of 5 colors powers a hero, type advantages (2× / ½×), combos, line and rainbow gems, hero specials (inferno, heal, vines, smite, drain), enemy attack timers, a boss every 5 stages, reward picks; arrows + Space on PC | Fantasy · Space Squad · Pet Brawl |
 | 🏎️ Turbo Track | Top-down racer: stick steering, drifting fills NITRO, boost pads, 3 laps vs 3 AI racing lines, minimap, places | Grand Prix · Desert Rally · Snow Circuit |
 | 🃏 Card Quest | Deckbuilder: draw / hand / discard piles, energy, drag or tap cards, enemy intents, block, strength, weak, vulnerable, card rewards, elites, a boss on floor 10 | Dungeon · Space Crew · Haunted Manor |
 | ✅ Habit Streaks | Check-offs, streaks, 7-day dots, completion ring, stats | Fresh Green · Fitness · Calm (light) |
@@ -156,6 +157,7 @@ On a 16 GB RAM PC with integrated graphics, expect a few to ~10 tokens/second fo
 | 3.0 | Starter recipes, Tuner, lean edits, shared prompt cache, kit v2 (music, backdrops, choice cards, banners) |
 | 3.1 | 5 new genre starters (hockey, basketball, tower defense, racer, deckbuilder), XP level-ups in Zombie Survival, milestones and buy-max in Idle Tycoon, kit on-screen action buttons |
 | 3.2 | Hold the Tower, an incremental tower defense starter with a permanent upgrade workshop |
+| 3.3 | Gem Clash, a match-3 puzzle battle starter |
 
 ---
 
@@ -175,7 +177,7 @@ server.js              zero-dependency server (API, Ollama proxy, storage, termi
 public/                the studio (PWA): index.html, app.js, engine.js, tester.js, styles.css
 public/shared/         build + test-harness code shared by browser and server
 public/kit/            game.js, app.js, ui.css — what generated apps are built on
-public/recipes/        20 starter recipes + index.js (keywords, themes, CFG helpers)
+public/recipes/        21 starter recipes + index.js (keywords, themes, CFG helpers)
 data/                  your projects, versions (deduplicated), workspace, logs, settings (not in git)
 ```
 

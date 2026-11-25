@@ -1,0 +1,382 @@
+<!-- app: {"name":"Gem Clash","emoji":"⚔️","color":"#f59e0b","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Gem Clash</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: heroes, enemies, colors, difficulty
+const CFG = {
+  "title": "Gem Clash",
+  "emoji": "⚔️",
+  "help": "Swap gems to match 3. Each color powers the hero of that color, who attacks. Fill a hero's bar, then tap the hero for a special! Enemies strike when their timer hits 0. Tap an enemy to target it. PC: arrows + Space to swap, 1–5 for specials.",
+  "accent": "#f59e0b",
+  "bgTop": "#1e1b4b",
+  "bgBottom": "#3b1a0b",
+  "boardColor": "#00000055",
+  "ground": "#2b2140",
+  "music": "action",
+  "elements": [
+    { "name": "Fire", "icon": "🔥", "color": "#ef4444" },
+    { "name": "Water", "icon": "💧", "color": "#3b82f6" },
+    { "name": "Nature", "icon": "🍃", "color": "#22c55e" },
+    { "name": "Light", "icon": "⚡", "color": "#facc15" },
+    { "name": "Shadow", "icon": "🌙", "color": "#a855f7" }
+  ],
+  "heroes": [
+    { "name": "Blaze", "icon": "🧙", "atk": 12, "special": "Inferno: hits ALL enemies" },
+    { "name": "Tide", "icon": "🧜", "atk": 10, "special": "Healing Tide: heal the team" },
+    { "name": "Fern", "icon": "🧝", "atk": 11, "special": "Vines: big hit + slow all timers" },
+    { "name": "Volt", "icon": "🦸", "atk": 12, "special": "Smite: huge hit on the target" },
+    { "name": "Umbra", "icon": "🥷", "atk": 11, "special": "Soul Drain: hit all + heal" }
+  ],
+  "teamHp": 600,
+  "manaMax": 12,
+  "enemies": [
+    { "name": "Salamander", "icon": "🦎", "el": 0, "hp": 70, "atk": 30, "every": 2 },
+    { "name": "Crab", "icon": "🦀", "el": 1, "hp": 90, "atk": 26, "every": 2 },
+    { "name": "Boar", "icon": "🐗", "el": 2, "hp": 85, "atk": 40, "every": 3 },
+    { "name": "Eagle", "icon": "🦅", "el": 3, "hp": 60, "atk": 28, "every": 2 },
+    { "name": "Bat", "icon": "🦇", "el": 4, "hp": 50, "atk": 16, "every": 1 },
+    { "name": "Viper", "icon": "🐍", "el": 2, "hp": 65, "atk": 30, "every": 2 },
+    { "name": "Skeleton", "icon": "💀", "el": 4, "hp": 95, "atk": 34, "every": 3 },
+    { "name": "Octopus", "icon": "🐙", "el": 1, "hp": 75, "atk": 24, "every": 2 }
+  ],
+  "bosses": [
+    { "name": "Fire Dragon", "icon": "🐉", "el": 0, "hp": 520, "atk": 70, "every": 3 },
+    { "name": "Kraken", "icon": "🦑", "el": 1, "hp": 560, "atk": 60, "every": 3 },
+    { "name": "Forest Troll", "icon": "🧌", "el": 2, "hp": 620, "atk": 85, "every": 4 },
+    { "name": "Sun Lion", "icon": "🦁", "el": 3, "hp": 500, "atk": 55, "every": 2 },
+    { "name": "Night Lord", "icon": "🧛", "el": 4, "hp": 540, "atk": 65, "every": 3 }
+  ],
+  "bossEvery": 5,
+  "hpGrowth": 1.14,
+  "atkGrowth": 1.09,
+  "strongHit": 2,
+  "weakHit": 0.5
+};
+
+// GAME
+const COLS = 7, ROWS = 6, KINDS = 5, S = 44, BX = (360 - S * COLS) / 2, BY = 344, CARD_Y = 266, FOE_Y = 152;
+const STRONG = { '0>2': 1, '2>1': 1, '1>0': 1, '3>4': 1, '4>3': 1 }, WEAK = { '2>0': 1, '1>2': 1, '0>1': 1 };
+let cur = [2, 3], held = false, kbd = false, grid, state, press, tapSel, cascade, swapCells, beams, idleT, hint, team, heroes, foes, target, bolts, stage, eq, eT, nextT, turns;
+
+const kindAt = (r, c) => { const q = grid[r] && grid[r][c]; return q && !q.pop ? q.k : -9; };
+const gem = (k, x, y) => ({ k, sp: null, x, y, pop: 0, used: 0 });
+const mult = (a, d) => (STRONG[a + '>' + d] ? CFG.strongHit : WEAK[a + '>' + d] ? CFG.weakHit : 1);
+const living = () => foes.filter((f) => f.hp > 0);
+const heroX = (i) => 180 + (i - 2) * 66;
+function foeLayout() { const L = living(), xs = [[180], [112, 248], [72, 180, 288]][foes.length - 1]; foes.forEach((f, i) => { f.x = xs[i]; f.y = FOE_Y + (f.boss ? -10 : foes.length === 3 && i === 1 ? -12 : 0); }); return L; }
+
+function fill(g) {
+  grid = []; for (let r = 0; r < ROWS; r++) { grid.push([]); for (let c = 0; c < COLS; c++) grid[r].push(null); }
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) { let k; do k = g.randi(0, KINDS - 1); while ((c >= 2 && grid[r][c - 1].k === k && grid[r][c - 2].k === k) || (r >= 2 && grid[r - 1][c].k === k && grid[r - 2][c].k === k)); grid[r][c] = gem(k, c, r - ROWS - 1); }
+}
+function runs() {
+  const out = [];
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS;) { const k = kindAt(r, c); let e = c + 1; while (k >= 0 && e < COLS && kindAt(r, e) === k) e++; if (k >= 0 && e - c >= 3) out.push({ dir: 'h', cells: Array.from({ length: e - c }, (_, i) => [r, c + i]) }); c = e; }
+  for (let c = 0; c < COLS; c++) for (let r = 0; r < ROWS;) { const k = kindAt(r, c); let e = r + 1; while (k >= 0 && e < ROWS && kindAt(e, c) === k) e++; if (k >= 0 && e - r >= 3) out.push({ dir: 'v', cells: Array.from({ length: e - r }, (_, i) => [r + i, c]) }); r = e; }
+  return out;
+}
+// every legal swap with how many gems of each color it matches (used for hints and the auto-shuffle)
+function moves() {
+  const K = grid.map((row) => row.map((q) => (q ? (q.sp === 'bomb' ? -1 : q.k) : -9))), list = [];
+  const line = (r, c) => { const k = K[r][c]; if (k < 0) return 0; let h = 1, v = 1;
+    for (let i = c - 1; i >= 0 && K[r][i] === k; i--) h++; for (let i = c + 1; i < COLS && K[r][i] === k; i++) h++;
+    for (let i = r - 1; i >= 0 && K[i][c] === k; i--) v++; for (let i = r + 1; i < ROWS && K[i][c] === k; i++) v++; return (h >= 3 ? h : 0) + (v >= 3 ? v : 0); };
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) for (const [r2, c2] of [[r, c + 1], [r + 1, c]]) {
+    if (r2 >= ROWS || c2 >= COLS) continue;
+    if (K[r][c] === -1 || K[r2][c2] === -1) { list.push({ a: [r, c], b: [r2, c2], n: 9, k: K[r][c] === -1 ? K[r2][c2] : K[r][c] }); continue; }
+    [K[r][c], K[r2][c2]] = [K[r2][c2], K[r][c]]; const n1 = line(r, c), n2 = line(r2, c2); [K[r][c], K[r2][c2]] = [K[r2][c2], K[r][c]];
+    if (n1 || n2) list.push({ a: [r, c], b: [r2, c2], n: n1 + n2, k: n1 >= n2 ? K[r2][c2] : K[r][c] });
+  }
+  return list;
+}
+
+function clear(g, list, at) {
+  const set = new Map(), makes = []; const key = (r, c) => r * COLS + c;
+  for (const run of list) {
+    run.cells.forEach(([r, c]) => set.set(key(r, c), [r, c]));
+    if (run.cells.length >= 4 && run.dir !== 'x') {
+      const p = run.cells.find(([r, c]) => at && at.some(([a, b]) => a === r && b === c)) || run.cells[Math.floor(run.cells.length / 2)];
+      if (!makes.some((m) => m.r === p[0] && m.c === p[1])) makes.push({ r: p[0], c: p[1], k: grid[p[0]][p[1]].k, sp: run.cells.length >= 5 ? 'bomb' : run.dir });
+    }
+  }
+  const queue = [...set.values()];
+  while (queue.length) {
+    const [r, c] = queue.pop(), q = grid[r][c]; if (!q || !q.sp || q.used) continue; q.used = 1; let extra = [];
+    if (q.sp === 'h') { extra = Array.from({ length: COLS }, (_, i) => [r, i]); beams.push({ r, t: 0.35 }); g.sfx('shoot'); }
+    else if (q.sp === 'v') { extra = Array.from({ length: ROWS }, (_, i) => [i, c]); beams.push({ c, t: 0.35 }); g.sfx('shoot'); }
+    else { const k = q.target != null ? q.target : g.randi(0, KINDS - 1); for (let a = 0; a < ROWS; a++) for (let b = 0; b < COLS; b++) if (grid[a][b] && (k === 'all' || grid[a][b].k === k)) extra.push([a, b]); g.sfx('explode'); g.shake(8); g.flash('#fff', 0.25); }
+    for (const e of extra) if (!set.has(key(e[0], e[1]))) { set.set(key(e[0], e[1]), e); queue.push(e); }
+  }
+  for (const m of makes) set.delete(key(m.r, m.c));
+  const per = [0, 0, 0, 0, 0];
+  for (const [r, c] of set.values()) {
+    const q = grid[r][c]; if (!q) continue; q.pop = 0.001; if (q.k >= 0) per[q.k]++;
+    const x = BX + (c + 0.5) * S, y = BY + (r + 0.5) * S, col = q.k >= 0 ? CFG.elements[q.k].color : '#fff';
+    g.particles(x, y, { color: [col, '#fff'], n: 4, speed: 120 });
+    if (q.k >= 0) fx.push({ x, y, tx: heroX(q.k), ty: CARD_Y, t: 0, col });
+  }
+  for (const m of makes) { const q = grid[m.r][m.c]; q.sp = m.sp; q.k = m.sp === 'bomb' ? -1 : m.k; q.used = 0; g.sfx('power'); g.floatText(BX + (m.c + 0.5) * S, BY + m.r * S, m.sp === 'bomb' ? 'RAINBOW!' : 'LINE!', '#fff', 18); }
+  // each color powers its hero: mana + an attack bolt at the target
+  const boost = 1 + 0.25 * (cascade - 1);
+  per.forEach((n, k) => {
+    if (!n) return; const h = heroes[k]; h.mana = Math.min(CFG.manaMax, h.mana + n); h.hop = 0.3;
+    launch(g, k, h.atk * n * boost, 0.18, false);
+  });
+  g.sfx(cascade > 1 ? 'combo' : 'pop');
+  if (cascade >= 2) g.floatText(180, BY - 14, 'COMBO x' + cascade, CFG.accent, 22);
+  state = 'pop';
+}
+let fx = [];
+function launch(g, k, dmg, delay, big, foe) {
+  const f = foe && foe.hp > 0 ? foe : target && target.hp > 0 ? target : living()[0]; if (!f) return;
+  bolts.push({ k, dmg, x: heroX(k), y: CARD_Y - 16, f, t: -delay, dur: 0.32, big });
+}
+function hurt(g, f, dmg, k) {
+  const m = mult(k, f.el), d = Math.max(1, Math.round(dmg * m));
+  f.hp -= d; f.hit = 0.2; g.addScore(d);
+  g.floatText(f.x + g.rand(-16, 16), f.y - 40, (m > 1 ? 'SUPER ' : m < 1 ? 'weak ' : '') + d, m > 1 ? '#fde047' : m < 1 ? '#cbd5e1' : '#fff', m > 1 ? 24 : 19);
+  g.particles(f.x, f.y, { color: [CFG.elements[k].color, '#fff'], n: Math.min(24, 6 + d / 8), speed: 170 }); g.sfx(d > 60 ? 'explode' : 'hit'); g.shake(Math.min(8, 2 + d / 30));
+  if (f.hp <= 0) { f.hp = 0; g.addScore(50); g.particles(f.x, f.y, { color: [CFG.elements[f.el].color, '#fff', CFG.accent], n: 40, speed: 260 }); g.sfx('pop'); if (target === f) target = living()[0] || null; }
+}
+function gravity(g) {
+  for (let c = 0; c < COLS; c++) {
+    let w = ROWS - 1;
+    for (let r = ROWS - 1; r >= 0; r--) if (grid[r][c]) { if (r !== w) { grid[w][c] = grid[r][c]; grid[r][c] = null; } w--; }
+    for (let r = w; r >= 0; r--) grid[r][c] = gem(g.randi(0, KINDS - 1), c, r - w - 1);
+  }
+  state = 'fall';
+}
+function shuffleIfStuck(g) {
+  if (moves().length) return;
+  g.banner('Shuffle!'); const ks = []; grid.forEach((row) => row.forEach((q) => { if (q) ks.push(q.k); }));
+  for (let n = 0; n < 80; n++) { ks.sort(() => Math.random() - 0.5); let i = 0; grid.forEach((row) => row.forEach((q) => { if (q) { q.k = ks[i++]; q.y -= 0.6; } })); if (!runs().length && moves().length) break; }
+  state = 'fall';
+}
+function startStage(g) {
+  stage++; const boss = stage % CFG.bossEvery === 0, hpK = Math.pow(CFG.hpGrowth, stage - 1), atkK = Math.pow(CFG.atkGrowth, stage - 1);
+  const mk = (d, k) => ({ ...d, hp: Math.round(d.hp * hpK * k), max: Math.round(d.hp * hpK * k), atk: Math.round(d.atk * atkK), cd: d.every, hit: 0, lunge: 0, boss: d.boss });
+  if (boss) foes = [mk({ ...CFG.bosses[(stage / CFG.bossEvery - 1) % CFG.bosses.length], boss: true }, 1)];
+  else { const n = stage === 1 ? 1 : stage < 4 ? 2 : g.chance(0.5) ? 3 : 2; foes = []; for (let i = 0; i < n; i++) foes.push(mk(g.pick(CFG.enemies), n === 3 ? 0.8 : 1)); }
+  foes.forEach((f, i) => { f.cd = Math.max(1, f.every + (i % 2)); }); foeLayout(); target = foes[0];
+  if (stage > 1) g.banner(boss ? 'BOSS: ' + foes[0].name : 'STAGE ' + stage, boss ? CFG.elements[foes[0].el].icon + ' ' + CFG.elements[foes[0].el].name + ' — weak to ' + CFG.elements[[1, 2, 0, 4, 3][foes[0].el]].icon : foes.map((f) => f.icon).join(' '));
+  state = 'idle';
+}
+function stageClear(g) {
+  const boss = foes.some((f) => f.boss); state = 'reward'; nextT = 1.1;
+  g.addScore(100 * stage + (boss ? 500 : 0)); g.sfx('win'); g.flash(CFG.accent, 0.25);
+  team.hp = Math.min(team.max, team.hp + Math.round(team.max * 0.08));
+  g.banner(boss ? 'BOSS DOWN!' : 'STAGE CLEAR!', '+8% HP');
+}
+function reward(g) {
+  const weakest = heroes.slice().sort((a, b) => a.atk - b.atk)[0], pickH = g.pick(heroes.filter((h) => h !== weakest));
+  const all = [
+    { icon: weakest.icon, title: 'Train ' + weakest.name, desc: '+30% attack (' + CFG.elements[weakest.k].icon + ')', run: () => { weakest.atk = Math.round(weakest.atk * 1.3); } },
+    { icon: pickH.icon, title: 'Train ' + pickH.name, desc: '+30% attack (' + CFG.elements[pickH.k].icon + ')', run: () => { pickH.atk = Math.round(pickH.atk * 1.3); } },
+    { icon: '❤️', title: 'Rest', desc: 'Heal 45% HP', run: () => { team.hp = Math.min(team.max, team.hp + Math.round(team.max * 0.45)); } },
+    { icon: '🛡️', title: 'Fortify', desc: '+20% max HP', run: () => { const add = Math.round(team.max * 0.2); team.max += add; team.hp += add; } },
+    { icon: '✨', title: 'Focus', desc: 'All specials +60% charged', run: () => { heroes.forEach((h) => { h.mana = Math.min(CFG.manaMax, h.mana + CFG.manaMax * 0.6); }); } },
+    { icon: '⚔️', title: 'War Cry', desc: 'Every hero +12% attack', run: () => { heroes.forEach((h) => { h.atk = Math.round(h.atk * 1.12 + 0.4); }); } },
+  ];
+  const opts = (team.hp < team.max * 0.5 ? [all[2]] : []).concat(all.filter((o) => o !== all[2] || team.hp >= team.max * 0.5).sort(() => Math.random() - 0.5)).slice(0, 3);
+  g.choose(opts, (i, o) => { o.run(); g.sfx('power'); startStage(g); }, { title: 'Choose a reward', sub: 'Stage ' + stage + ' cleared · HP ' + team.hp + '/' + team.max, timeout: 15 });
+}
+function cast(g, h) {
+  if (state !== 'idle' || h.mana < CFG.manaMax || !living().length) return;
+  h.mana = 0; h.hop = 0.4; g.sfx('power'); g.flash(CFG.elements[h.k].color, 0.3); g.shake(5);
+  g.banner(h.icon + ' ' + h.special.split(':')[0] + '!');
+  if (h.k === 0) living().forEach((f, i) => launch(g, 0, h.atk * 8, 0.1 + i * 0.1, true, f));
+  else if (h.k === 1) { const heal = Math.round(team.max * 0.35); team.hp = Math.min(team.max, team.hp + heal); g.floatText(180, CARD_Y + 50, '+' + heal + ' HP', '#86efac', 24); g.sfx('coin'); }
+  else if (h.k === 2) { launch(g, 2, h.atk * 7, 0.1, true); living().forEach((f) => { f.cd = Math.min(f.every + 2, f.cd + 1); }); g.floatText(180, FOE_Y + 54, 'Timers +1', '#86efac', 18); }
+  else if (h.k === 3) launch(g, 3, h.atk * 14, 0.1, true);
+  else { living().forEach((f, i) => launch(g, 4, h.atk * 5, 0.1 + i * 0.1, true, f)); const heal = Math.round(h.atk * 5 * living().length * 0.5); team.hp = Math.min(team.max, team.hp + heal); g.floatText(180, CARD_Y + 50, '+' + heal + ' HP', '#d8b4fe', 20); }
+}
+function enemyTurn(g) {
+  eq = []; for (const f of living()) { f.cd--; if (f.cd <= 0) eq.push(f); }
+  if (eq.length) { state = 'enemy'; eT = 0.3; } else { state = 'idle'; shuffleIfStuck(g); }
+}
+function trySwap(g, a, b) {
+  if (state !== 'idle' || !b || Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) !== 1) return;
+  const A = grid[a[0]][a[1]], B = grid[b[0]][b[1]]; if (!A || !B) return;
+  grid[a[0]][a[1]] = B; grid[b[0]][b[1]] = A; swapCells = [a, b]; state = 'swap'; tapSel = null; hint = null; g.sfx('click');
+}
+function cellAt(x, y) { const c = Math.floor((x - BX) / S), r = Math.floor((y - BY) / S); return r >= 0 && r < ROWS && c >= 0 && c < COLS ? [r, c] : null; }
+function shape(ctx, k, x, y, r) {
+  ctx.beginPath();
+  if (k === 0) { for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.62 : r * 1.1; ctx[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); }
+  else if (k === 1) { ctx.moveTo(x, y - r * 1.1); ctx.bezierCurveTo(x + r * 1.2, y + r * 0.1, x + r * 0.7, y + r, x, y + r); ctx.bezierCurveTo(x - r * 0.7, y + r, x - r * 1.2, y + r * 0.1, x, y - r * 1.1); }
+  else if (k === 2) { ctx.moveTo(x, y - r * 1.12); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r * 1.12); ctx.lineTo(x - r, y); ctx.closePath(); }
+  else if (k === 3) { for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; ctx[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.closePath(); }
+  else ctx.arc(x, y, r, 0, 6.283);
+}
+function drawGem(g, ctx, q, x, y, sc) {
+  const r = S * 0.38 * sc;
+  if (q.sp === 'bomb') {
+    CFG.elements.forEach((e, i) => { ctx.fillStyle = e.color; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r * 1.05, g.t * 2 + i * 6.283 / KINDS, g.t * 2 + (i + 1) * 6.283 / KINDS); ctx.fill(); });
+    g.circle(x, y, r * 0.45, '#fff'); g.ring(x, y, r * 1.05, 'rgba(255,255,255,.8)', 2); return;
+  }
+  const col = CFG.elements[q.k].color;
+  shape(ctx, q.k, x, y, r); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.stroke();
+  ctx.save(); ctx.clip(); ctx.fillStyle = 'rgba(255,255,255,.3)'; ctx.beginPath(); ctx.arc(x - r * 0.35, y - r * 0.45, r * 0.9, 0, 6.283); ctx.fill(); ctx.restore();
+  if (q.k === 4) g.circle(x + r * 0.32, y - r * 0.2, r * 0.62, 'rgba(30,10,60,.55)');
+  g.circle(x - r * 0.32, y - r * 0.38, r * 0.15, 'rgba(255,255,255,.9)');
+  if (q.sp === 'h' || q.sp === 'v') { ctx.save(); ctx.translate(x, y); if (q.sp === 'v') ctx.rotate(Math.PI / 2); for (const o of [-0.35, 0.35]) g.rect(-r * 1.05, o * r - 2, r * 2.1, 4, 'rgba(255,255,255,.9)', 2); ctx.restore(); }
+}
+
+const GAME = {
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.bgTop, music: CFG.music, formatScore: true, overEmoji: '💔',
+  init(g) {
+    fill(g); press = null; tapSel = null; cur = [2, 3]; held = false; kbd = false; cascade = 1; swapCells = null; beams = []; bolts = []; fx = []; idleT = 0; hint = null; eq = []; eT = 0; nextT = 0; turns = 0;
+    team = { hp: CFG.teamHp, max: CFG.teamHp, hit: 0 }; heroes = CFG.heroes.slice(0, 5).map((h, k) => ({ ...h, k, mana: 0, hop: 0 }));
+    stage = 0; startStage(g); state = 'fall';
+  },
+  update(g, dt) {
+    const inp = g.input;
+    for (let i = beams.length - 1; i >= 0; i--) { beams[i].t -= dt; if (beams[i].t <= 0) beams.splice(i, 1); }
+    for (let i = fx.length - 1; i >= 0; i--) { fx[i].t += dt * 2.6; if (fx[i].t >= 1) fx.splice(i, 1); }
+    for (const h of heroes) h.hop = Math.max(0, h.hop - dt);
+    for (const f of foes) { f.hit = Math.max(0, f.hit - dt); f.lunge = Math.max(0, f.lunge - dt); }
+    team.hit = Math.max(0, team.hit - dt);
+    for (let i = bolts.length - 1; i >= 0; i--) {
+      const b = bolts[i]; b.t += dt;
+      if (b.t >= b.dur) { bolts.splice(i, 1); const f = b.f.hp > 0 ? b.f : target && target.hp > 0 ? target : living()[0]; if (f) hurt(g, f, b.dmg, b.k); }
+    }
+    // input: tap enemy = target, tap hero = special, swipe or tap-tap gems = swap
+    if (inp.pressed) {
+      const f = living().find((o) => Math.hypot(o.x - inp.x, o.y - inp.y) < (o.boss ? 60 : 42));
+      if (f) { target = f; g.sfx('tick'); }
+      heroes.forEach((h, i) => { if (Math.abs(inp.x - heroX(i)) < 31 && Math.abs(inp.y - CARD_Y) < 34) { if (h.mana >= CFG.manaMax) cast(g, h); else g.floatText(heroX(i), CARD_Y - 40, h.special.split(':')[0] + ' ' + Math.floor(h.mana) + '/' + CFG.manaMax, '#ffffffcc', 13); } });
+      const p = cellAt(inp.x, inp.y);
+      if (p && tapSel && Math.abs(p[0] - tapSel[0]) + Math.abs(p[1] - tapSel[1]) === 1) { trySwap(g, tapSel, p); press = null; }
+      else press = p ? { cell: p, x: inp.x, y: inp.y } : null;
+    }
+    if (press && inp.down && state === 'idle') {
+      const dx = inp.x - press.x, dy = inp.y - press.y;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) > S * 0.35) {
+        const [r, c] = press.cell, b = Math.abs(dx) > Math.abs(dy) ? [r, c + Math.sign(dx)] : [r + Math.sign(dy), c];
+        press = null; if (b[0] >= 0 && b[0] < ROWS && b[1] >= 0 && b[1] < COLS) trySwap(g, [r, c], b);
+      }
+    }
+    if (inp.released && press) { tapSel = tapSel && tapSel[0] === press.cell[0] && tapSel[1] === press.cell[1] ? null : press.cell; press = null; if (tapSel) g.sfx('tick'); }
+    for (let k = 1; k <= 5; k++) if (inp.keyPressed(String(k))) cast(g, heroes[k - 1]);
+    // keyboard: arrows move the cursor, Space/Enter grabs a gem, then an arrow swaps it
+    const dirs = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] };
+    for (const key in dirs) if (inp.keyPressed(key)) {
+      kbd = true; const nr = cur[0] + dirs[key][0], nc = cur[1] + dirs[key][1]; if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      if (held) { held = false; trySwap(g, [cur[0], cur[1]], [nr, nc]); } cur = [nr, nc];
+    }
+    if (inp.keyPressed(' ') || inp.keyPressed('Enter')) { kbd = true; held = !held; g.sfx('tick'); }
+
+    let moving = false; const v = (state === 'swap' || state === 'revert' ? 7 : 12) * dt;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const q = grid[r][c]; if (!q) continue;
+      if (q.x !== c) { q.x += g.clamp(c - q.x, -v, v); moving = true; }
+      if (q.y !== r) { q.y += g.clamp(r - q.y, -v, v); moving = true; }
+    }
+    if (state === 'pop') {
+      let left = false;
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) { const q = grid[r][c]; if (q && q.pop) { q.pop += dt * 6; if (q.pop >= 1) grid[r][c] = null; else left = true; } }
+      if (!left) gravity(g);
+      return;
+    }
+    if (state === 'enemy') {
+      eT -= dt;
+      if (eT <= 0) {
+        const f = eq.shift();
+        if (f && f.hp > 0) {
+          f.lunge = 0.35; f.cd = f.every; team.hp -= f.atk; team.hit = 0.35;
+          g.floatText(180, CARD_Y + 46, '-' + f.atk, '#f87171', 26); g.shake(4 + f.atk / 12); g.flash('#ef4444', 0.18); g.sfx('hit'); g.vibrate && g.vibrate(40);
+          if (team.hp <= 0) { team.hp = 0; GAME.overText = 'Your team fell on stage ' + stage; g.over(); return; }
+          eT = 0.55;
+        } else if (!eq.length) { state = 'idle'; shuffleIfStuck(g); }
+      }
+      return;
+    }
+    if (state === 'reward') { nextT -= dt; if (nextT <= 0 && !bolts.length) { state = 'choosing'; reward(g); } return; }
+    if (moving) return;
+    if (state === 'swap') {
+      const [a, b] = swapCells, A = grid[a[0]][a[1]], B = grid[b[0]][b[1]];
+      if (A.sp === 'bomb' || B.sp === 'bomb') {
+        const bomb = A.sp === 'bomb' ? a : b, other = A.sp === 'bomb' ? B : A;
+        grid[bomb[0]][bomb[1]].target = other.sp === 'bomb' ? 'all' : other.k; cascade = 1; turns++;
+        clear(g, [{ dir: 'x', cells: [bomb] }], swapCells); return;
+      }
+      const found = runs();
+      if (found.length) { cascade = 1; turns++; clear(g, found, swapCells); }
+      else { grid[a[0]][a[1]] = B; grid[b[0]][b[1]] = A; state = 'revert'; g.sfx('hit'); }
+    } else if (state === 'revert') state = 'idle';
+    else if (state === 'fall') {
+      const found = runs();
+      if (found.length) { cascade++; clear(g, found, null); } else state = turns ? 'settle' : 'idle';
+    } else if (state === 'settle') {
+      if (bolts.length) return; turns = 0;
+      if (!living().length) stageClear(g); else enemyTurn(g);
+    } else if (state === 'idle') {
+      if (!living().length && !bolts.length) { stageClear(g); return; }
+      idleT += dt; if (idleT > 7 && !hint) { const m = moves(); hint = m.length ? m[0] : null; }
+      if (inp.pressed) idleT = 0;
+    }
+  },
+  draw(g, ctx) {
+    g.backdrop('bokeh', { colors: [CFG.bgTop, CFG.bgBottom], tint: [CFG.accent, '#ef4444', '#3b82f6'], speed: 0.4, alpha: 0.3 });
+    if (!grid || !foes) return;
+    // arena floor + enemies
+    ctx.fillStyle = CFG.ground; ctx.beginPath(); ctx.ellipse(180, FOE_Y + 40, 190, 32, 0, 0, 6.283); ctx.fill();
+    g.text((foes.some((f) => f.boss) ? '👑 BOSS · ' : 'STAGE ') + stage, 180, Math.max(g.viewY, 0) + 66, { size: 13, weight: 900, color: '#ffffffcc' });
+    for (const f of foes) {
+      if (f.hp <= 0) continue;
+      const sz = f.boss ? 84 : 58, lx = f.lunge ? Math.sin(f.lunge / 0.35 * Math.PI) * 26 : 0, x = f.x + (f.hit ? g.rand(-4, 4) : 0), y = f.y + Math.sin(g.t * 2 + f.x) * 3 + lx;
+      g.circle(f.x, f.y + sz * 0.46, sz * 0.36, 'rgba(0,0,0,.35)');
+      if (f === target && living().length > 1) g.ring(f.x, f.y, sz * 0.62, CFG.accent, 2.5);
+      g.emoji(f.icon, x, y, sz); if (f.hit) g.circle(x, y, sz * 0.42, 'rgba(255,255,255,.35)');
+      const w = f.boss ? 130 : 78, bh = f.boss ? 13 : 11, by = f.y + sz * 0.5;
+      g.rect(f.x - w / 2, by, w, bh, 'rgba(0,0,0,.7)', 6); g.rect(f.x - w / 2, by, w * f.hp / f.max, bh, CFG.elements[f.el].color, 6);
+      g.text(g.fmt(Math.ceil(f.hp)), f.x + 0.6, by + bh / 2 + 1.1, { size: bh - 1, weight: 900, color: 'rgba(0,0,0,.6)' }); g.text(g.fmt(Math.ceil(f.hp)), f.x, by + bh / 2 + 0.5, { size: bh - 1, weight: 900 });
+      g.circle(f.x - w / 2 - 9, by + bh / 2, 10, 'rgba(0,0,0,.65)'); g.emoji(CFG.elements[f.el].icon, f.x - w / 2 - 9, by + bh / 2, 13);
+      const cx = f.x + sz * 0.42, cy = f.y - sz * 0.42, hot = f.cd <= 1;
+      g.circle(cx, cy, 13, hot ? '#dc2626' : 'rgba(15,23,42,.85)'); g.ring(cx, cy, 13, hot ? '#fecaca' : '#ffffff55', 2); g.text(f.cd, cx, cy + 1, { size: 14, weight: 900 });
+    }
+    // bolts
+    for (const b of bolts) {
+      if (b.t < 0) continue; const k = b.t / b.dur, x = b.x + (b.f.x - b.x) * k, y = b.y + (b.f.y - b.y) * k - Math.sin(k * Math.PI) * 40, col = CFG.elements[b.k].color;
+      g.glow(col, 14); g.circle(x, y, b.big ? 11 : 7, col); g.noGlow(); g.circle(x, y, b.big ? 5 : 3, '#fff');
+    }
+    // team: hero cards + HP
+    heroes.forEach((h, i) => {
+      const x = heroX(i), ready = h.mana >= CFG.manaMax, y = CARD_Y - (h.hop ? Math.sin(h.hop / 0.3 * Math.PI) * 8 : 0), col = CFG.elements[h.k].color;
+      if (ready) { g.glow(col, 18 + Math.sin(g.t * 6) * 6); g.rect(x - 29, y - 31, 58, 62, col, 12); g.noGlow(); }
+      g.rect(x - 28, y - 30, 56, 60, 'rgba(15,23,42,.9)', 11); g.rect(x - 28, y - 30, 56, 5, col, 3);
+      g.emoji(h.icon, x, y - 6, 30);
+      g.rect(x - 22, y + 18, 44, 6, 'rgba(255,255,255,.15)', 3); g.rect(x - 22, y + 18, 44 * h.mana / CFG.manaMax, 6, col, 3);
+      if (ready) g.text('TAP!', x, y - 37, { size: 11, weight: 900, color: col });
+      g.circle(x + 22, y - 24, 9, col); g.text(Math.round(h.atk), x + 22, y - 24, { size: 9, weight: 900, color: '#0f172a' });
+    });
+    const hy = CARD_Y + 40, sh = team.hit ? g.rand(-3, 3) : 0;
+    g.rect(30 + sh, hy, 300, 14, 'rgba(0,0,0,.6)', 7); g.rect(30 + sh, hy, 300 * team.hp / team.max, 14, team.hp < team.max * 0.3 ? '#ef4444' : '#22c55e', 7);
+    g.text('❤ ' + Math.ceil(team.hp) + ' / ' + team.max, 180 + sh, hy + 7.5, { size: 11, weight: 900 });
+    // board
+    g.rect(BX - 6, BY - 6, S * COLS + 12, S * ROWS + 12, CFG.boardColor, 14);
+    ctx.fillStyle = 'rgba(255,255,255,.04)'; for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if ((r + c) % 2) ctx.fillRect(BX + c * S, BY + r * S, S, S);
+    ctx.save(); ctx.beginPath(); ctx.rect(BX - 6, BY - 6, S * COLS + 12, S * ROWS + 12); ctx.clip();
+    if (kbd) { g.rect(BX + cur[1] * S + 2, BY + cur[0] * S + 2, S - 4, S - 4, held ? 'rgba(255,255,255,.28)' : 'rgba(255,255,255,.08)', 9); ctx.strokeStyle = CFG.accent; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.roundRect(BX + cur[1] * S + 2, BY + cur[0] * S + 2, S - 4, S - 4, 9); ctx.stroke(); }
+    if (tapSel) g.ring(BX + (tapSel[1] + 0.5) * S, BY + (tapSel[0] + 0.5) * S, S * 0.47 * (1 + Math.sin(g.t * 8) * 0.04), '#fff', 2);
+    if (hint) for (const [r, c] of [hint.a, hint.b]) g.ring(BX + (c + 0.5) * S, BY + (r + 0.5) * S, S * (0.42 + Math.sin(g.t * 6) * 0.05), '#ffffffaa', 2);
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) { const q = grid[r][c]; if (!q) continue; const sc = q.pop ? 1 - q.pop : 1 + (q.sp ? Math.sin(g.t * 5) * 0.05 : 0); drawGem(g, ctx, q, BX + (q.x + 0.5) * S, BY + (q.y + 0.5) * S, Math.max(0.01, sc)); }
+    ctx.globalCompositeOperation = 'lighter';
+    for (const b of beams) { const a = b.t / 0.35; if (b.r != null) g.rect(BX, BY + b.r * S + S * 0.2, S * COLS, S * 0.6, 'rgba(255,255,255,' + (a * 0.6).toFixed(2) + ')', 8); else g.rect(BX + b.c * S + S * 0.2, BY, S * 0.6, S * ROWS, 'rgba(255,255,255,' + (a * 0.6).toFixed(2) + ')', 8); }
+    ctx.globalCompositeOperation = 'source-over'; ctx.restore();
+    for (const e of fx) { const k = e.t, x = e.x + (e.tx - e.x) * k, y = e.y + (e.ty - e.y) * k; g.circle(x, y, 4 * (1 - k) + 1.5, e.col); }
+    if (state === 'enemy') g.text('Enemy turn…', 180, BY + S * ROWS + 22, { size: 13, weight: 900, color: '#fca5a5' });
+    else g.text('Match 4 → line gem · Match 5 → rainbow', 180, BY + S * ROWS + 22, { size: 11, color: '#ffffff88', weight: 700 });
+  },
+};
+Kit.game(GAME);
+</script>
+</body>
+</html>
