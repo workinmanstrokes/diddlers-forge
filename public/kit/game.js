@@ -191,7 +191,7 @@
     // ---------- layout: logical W×H letterboxed into any screen ----------
     var scale = 1, ox = 0, oy = 0, dpr = 1, vw = 0, vh = 0;
     function resize() {
-      vw = window.innerWidth; vh = window.innerHeight; dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      vw = Math.max(1, window.innerWidth); vh = Math.max(1, window.innerHeight); dpr = Math.min(window.devicePixelRatio || 1, 2.5);
       canvas.width = Math.round(vw * dpr); canvas.height = Math.round(vh * dpr);
       scale = Math.min(vw / W, vh / H); ox = (vw - W * scale) / 2; oy = (vh - H * scale) / 2;
       g.viewX = -ox / scale; g.viewY = -oy / scale; g.viewW = vw / scale; g.viewH = vh / scale; // full visible area in game units

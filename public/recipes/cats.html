@@ -1,0 +1,196 @@
+<!-- app: {"name":"Cat Spots","emoji":"🐱","color":"#f472b6","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cat Spots</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: names, emoji, colors, difficulty
+const CFG = {
+  "title": "Cat Spots",
+  "emoji": "🐱",
+  "noun": "cat",
+  "help": "Place one cat in every row, every column and every color. Cats hate neighbors: no two can touch, not even corner to corner. Tap once for ✕, twice for a cat. Drag to mark lots of ✕. Wrong cats cost a heart!",
+  "accent": "#f472b6",
+  "bgTop": "#1e1b2e",
+  "bgBottom": "#3b1d3a",
+  "boardEdge": "#1c1427",
+  "markColor": "#3f3550",
+  "autoMarkColor": "#3f355059",
+  "lineColor": "#1c14272e",
+  "music": "chill",
+  "items": ["🐱", "😺", "😸", "😻", "😼", "😽", "🙀", "😹", "🐈"],
+  "regionColors": ["#fca5a5", "#fdba74", "#fde68a", "#bef264", "#5eead4", "#93c5fd", "#c4b5fd", "#f9a8d4", "#e7e5e4", "#d6b38a"],
+  "hearts": 3,
+  "hints": 3,
+  "autoMark": true,
+  "starterCatLevels": 2,
+  "sizeStart": 5,
+  "sizeMax": 9,
+  "pointsPerCat": 25,
+  "pointsPerMark": 2
+};
+
+// GAME
+let lockT = 0, seen, N, sol, reg, cells, cell, BX, BY, level, hearts, hints, mistakes, timeT, clearT, press, painting, paintMode, cur, kbd, colors, wrong, born, toastT;
+const BOARD = 324, TOP = 124, HINT = { x: 112, y: 530 }, AUTO = { x: 248, y: 530 };
+let autoMark = CFG.autoMark;
+const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+// ---- puzzle generator: random cat layout, grow color regions, then repair until the solution is unique ----
+function genSolution(n) { const cols = Array(n), used = Array(n).fill(false);
+  const bt = (r) => { if (r === n) return true; for (const c of shuffle([...Array(n).keys()])) { if (used[c] || (r && Math.abs(cols[r - 1] - c) <= 1)) continue; used[c] = true; cols[r] = c; if (bt(r + 1)) return true; used[c] = false; } return false; };
+  bt(0); return cols; }
+function grow(n, cols) {
+  const rg = Array.from({ length: n }, () => Array(n).fill(-1)); cols.forEach((c, r) => { rg[r][c] = r; }); let left = n * n - n; const stuck = Array(n).fill(false);
+  while (left && !stuck.every(Boolean)) {
+    const k = Math.floor(Math.random() * n), opts = [];
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (rg[r][c] === k) for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = r + dr, b = c + dc; if (a >= 0 && a < n && b >= 0 && b < n && rg[a][b] < 0) opts.push([a, b]); }
+    if (!opts.length) { stuck[k] = true; continue; }
+    const [a, b] = opts[Math.floor(Math.random() * opts.length)]; rg[a][b] = k; left--;
+  }
+  return rg;
+}
+function otherSolution(n, rg, s) { const uc = Array(n).fill(false), ur = Array(n).fill(false), cols = Array(n); let found = null;
+  const bt = (r) => { if (found) return; if (r === n) { if (cols.some((c, i) => c !== s[i])) found = cols.slice(); return; } for (let c = 0; c < n; c++) { const k = rg[r][c]; if (uc[c] || ur[k] || (r && Math.abs(cols[r - 1] - c) <= 1)) continue; uc[c] = ur[k] = true; cols[r] = c; bt(r + 1); uc[c] = ur[k] = false; if (found) return; } };
+  bt(0); return found; }
+function stillConnected(n, rg, k, rr, cc) { const list = []; for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (rg[r][c] === k && !(r === rr && c === cc)) list.push(r * n + c);
+  if (!list.length) return false; const set = new Set(list), seen = new Set([list[0]]), st = [list[0]];
+  while (st.length) { const v = st.pop(), r = Math.floor(v / n), c = v % n; for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = r + dr, b = c + dc, w = a * n + b; if (a >= 0 && a < n && b >= 0 && b < n && set.has(w) && !seen.has(w)) { seen.add(w); st.push(w); } } }
+  return seen.size === list.length; }
+function makePuzzle(n) {
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const s = genSolution(n), rg = grow(n, s);
+    for (let it = 0; it < 400; it++) {
+      const alt = otherSolution(n, rg, s); if (!alt) return { sol: s, reg: rg };
+      let fixed = false;
+      for (const r of shuffle([...Array(n).keys()])) {
+        if (alt[r] === s[r]) continue; const c = alt[r], A = rg[r][c];
+        const nb = shuffle([[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dr, dc]) => [r + dr, c + dc]).filter(([a, b]) => a >= 0 && a < n && b >= 0 && b < n && rg[a][b] !== A).map(([a, b]) => rg[a][b]));
+        if (!nb.length || !stillConnected(n, rg, A, r, c)) continue;
+        rg[r][c] = nb[0]; fixed = true; break;
+      }
+      if (!fixed) break;
+    }
+  }
+  return null;
+}
+
+function startLevel(g) {
+  level++; N = Math.min(CFG.sizeMax, CFG.sizeStart + Math.floor((level - 1) / 2));
+  let p = makePuzzle(N); while (!p && N > 4) { N--; p = makePuzzle(N); }
+  sol = p.sol; reg = p.reg; cells = Array.from({ length: N }, () => Array(N).fill(0)); seen = new Set(); born = Array.from({ length: N }, () => Array(N).fill(0));
+  cell = Math.floor(BOARD / N); BX = 180 - (cell * N) / 2; BY = TOP + (BOARD - cell * N) / 2;
+  colors = shuffle(CFG.regionColors.slice()).slice(0, N); hearts = CFG.hearts; mistakes = 0; timeT = 0; clearT = 0; wrong = []; cur = [0, 0];
+  if (level > 1 && level % 3 === 1) { hints++; g.floatText(HINT.x, HINT.y - 34, '+1 hint', '#fde047', 16); }
+  if (level <= CFG.starterCatLevels) { const r = Math.floor(Math.random() * N); tryCat(g, r, sol[r], true); born[r][sol[r]] = -9; }
+  if (level > 1) g.banner('LEVEL ' + level, level <= CFG.starterCatLevels ? 'One ' + CFG.noun + ' is placed for you' : N + ' × ' + N);
+}
+const cellAt = (x, y) => { const c = Math.floor((x - BX) / cell), r = Math.floor((y - BY) / cell); return r >= 0 && r < N && c >= 0 && c < N ? [r, c] : null; };
+const catsPlaced = () => cells.reduce((a, row) => a + row.filter((v) => v === 2).length, 0);
+function mark(r, c, mode) { if (cells[r][c] === 2) return; if (mode === 'erase') { if (cells[r][c] === 1) cells[r][c] = 0; } else if (cells[r][c] !== 1) { cells[r][c] = 1; credit(r, c); } }
+// a small reward the first time you mark each cell (says nothing about the answer)
+function credit(r, c) { const k = r * N + c; if (!seen.has(k)) { seen.add(k); Kit.current.addScore(CFG.pointsPerMark); } }
+function tryCat(g, r, c, free) {
+  const x = BX + (c + 0.5) * cell, y = BY + (r + 0.5) * cell;
+  if (sol[r] === c) {
+    cells[r][c] = 2; born[r][c] = g.t; g.sfx('coin'); g.particles(x, y, { color: [colors[reg[r][c]], '#fff', CFG.accent], n: 16, speed: 150 });
+    if (!free) g.addScore(CFG.pointsPerCat, x, y - cell * 0.4);
+    if (autoMark) for (let a = 0; a < N; a++) for (let b = 0; b < N; b++) if (cells[a][b] === 0 && (a === r || b === c || reg[a][b] === reg[r][c] || (Math.abs(a - r) <= 1 && Math.abs(b - c) <= 1))) cells[a][b] = 3;
+    if (catsPlaced() === N) win(g);
+    return;
+  }
+  // an obvious rule break next to a cat you already placed: explain it, no heart lost
+  for (let a = 0; a < N; a++) for (let b = 0; b < N; b++) if (cells[a][b] === 2) {
+    const why = a === r ? 'Same row!' : b === c ? 'Same column!' : reg[a][b] === reg[r][c] ? 'Same color!' : Math.abs(a - r) <= 1 && Math.abs(b - c) <= 1 ? 'Too close!' : '';
+    if (why) { cells[r][c] = 1; wrong.push({ r, c, t: 0.45 }); wrong.push({ r: a, c: b, t: 0.45 }); g.sfx('tick'); g.floatText(x, y - cell * 0.4, why, '#fde68a', 16); return; }
+  }
+  hearts--; mistakes++; cells[r][c] = 1; lockT = 1.1; wrong.push({ r, c, t: 0.6 }); g.sfx('hit'); g.shake(6); g.flash('#ef4444', 0.2); g.vibrate && g.vibrate(60);
+  g.floatText(x, y - cell * 0.4, '🙀 Not here!', '#fecaca', 16);
+  if (hearts <= 0) { GAME.overText = 'Out of hearts on level ' + level + ' (' + N + '×' + N + ')'; g.after(0.5, () => { if (g.state === 'play') g.over(); }); clearT = -1; }
+}
+function cycle(g, r, c) {
+  const v = cells[r][c]; if (v === 2) return;
+  if (v === 0 || v === 3) { cells[r][c] = 1; credit(r, c); g.sfx('tick'); } else tryCat(g, r, c, false);
+}
+function win(g) {
+  const secs = Math.round(timeT), bonus = 100 * N + Math.max(0, 300 - secs * 3) + hearts * 50 + (mistakes ? 0 : 150);
+  clearT = 2.4; g.addScore(bonus); g.sfx('win'); g.flash(CFG.accent, 0.25);
+  g.banner(mistakes ? 'SOLVED!' : 'PURRFECT!', secs + 's · +' + bonus);
+  for (let k = 0; k < 5; k++) g.particles(g.rand(60, 300), g.rand(TOP, TOP + BOARD), { color: [CFG.accent, '#fde047', '#93c5fd', '#fff'], n: 24, speed: 240 });
+}
+function useHint(g) {
+  if (clearT || hints <= 0) { if (!hints) g.floatText(HINT.x, HINT.y - 34, 'No hints left', '#fca5a5', 14); return; }
+  const rows = shuffle([...Array(N).keys()]).filter((r) => cells[r][sol[r]] !== 2); if (!rows.length) return;
+  hints--; const r = rows[0]; tryCat(g, r, sol[r], true); g.floatText(BX + (sol[r] + 0.5) * cell, BY + r * cell, '💡', '#fde047', 22);
+}
+function button(g, b, label, on) {
+  g.rect(b.x - 62, b.y - 23, 124, 46, on ? CFG.accent : 'rgba(255,255,255,.1)', 14);
+  g.text(label, b.x, b.y + 1, { size: 15, weight: 900, color: on ? '#1e1b2e' : '#fff' });
+}
+
+const GAME = {
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.bgTop, music: CFG.music, overEmoji: '😿',
+  init(g) { lockT = 0; level = 0; hints = CFG.hints; press = null; painting = false; kbd = false; toastT = 0; startLevel(g); },
+  update(g, dt) {
+    const inp = g.input;
+    for (let i = wrong.length - 1; i >= 0; i--) { wrong[i].t -= dt; if (wrong[i].t <= 0) wrong.splice(i, 1); }
+    if (clearT > 0) { clearT -= dt; if (clearT <= 0) { clearT = 0; startLevel(g); } return; }
+    if (clearT < 0) return;
+    timeT += dt; if (lockT > 0) { lockT -= dt; press = null; return; }
+    // buttons
+    if (inp.pressed && Math.abs(inp.x - HINT.x) < 62 && Math.abs(inp.y - HINT.y) < 26) { useHint(g); return; }
+    if (inp.pressed && Math.abs(inp.x - AUTO.x) < 62 && Math.abs(inp.y - AUTO.y) < 26) { autoMark = !autoMark; g.sfx('tick'); if (!autoMark) cells.forEach((row) => row.forEach((v, i) => { if (v === 3) row[i] = 0; })); return; }
+    // board: tap cycles ✕ → cat, drag paints ✕ (or erases if you start on a ✕)
+    if (inp.pressed) { const p = cellAt(inp.x, inp.y); press = p; painting = false; paintMode = p && cells[p[0]][p[1]] === 1 ? 'erase' : 'mark'; }
+    if (press && inp.down) { const p = cellAt(inp.x, inp.y); if (p && (p[0] !== press[0] || p[1] !== press[1])) { if (!painting) { painting = true; mark(press[0], press[1], paintMode); } mark(p[0], p[1], paintMode); } }
+    if (inp.released && press) { if (!painting) cycle(g, press[0], press[1]); else g.sfx('tick'); press = null; painting = false; }
+    // keyboard: arrows move, X marks, Space/Enter = tap
+    const dirs = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] };
+    for (const k in dirs) if (inp.keyPressed(k)) { kbd = true; cur = [Math.max(0, Math.min(N - 1, cur[0] + dirs[k][0])), Math.max(0, Math.min(N - 1, cur[1] + dirs[k][1]))]; }
+    if (inp.keyPressed('x')) { kbd = true; const v = cells[cur[0]][cur[1]]; if (v !== 2) { cells[cur[0]][cur[1]] = v === 1 ? 0 : 1; if (v !== 1) credit(cur[0], cur[1]); } }
+    if (inp.keyPressed(' ') || inp.keyPressed('Enter')) { kbd = true; cycle(g, cur[0], cur[1]); }
+    if (inp.keyPressed('h')) useHint(g);
+  },
+  draw(g, ctx) {
+    g.backdrop('bokeh', { colors: [CFG.bgTop, CFG.bgBottom], tint: [CFG.accent, '#93c5fd'], speed: 0.3, alpha: 0.3 });
+    if (!cells) return;
+    const top = Math.max(g.viewY, 0) + 70, m = Math.floor(timeT / 60), s = Math.floor(timeT % 60);
+    g.text('LEVEL ' + level + '  ·  ' + N + '×' + N, 30, top, { size: 14, weight: 900, align: 'left' });
+    g.text('⏱ ' + m + ':' + String(s).padStart(2, '0'), 330, top, { size: 14, weight: 900, align: 'right', color: '#ffffffcc' });
+    for (let i = 0; i < CFG.hearts; i++) g.text(i < hearts ? '❤️' : '🖤', 180 + (i - (CFG.hearts - 1) / 2) * 26, top + 28, { size: 18 });
+    // board
+    g.rect(BX - 7, BY - 7, cell * N + 14, cell * N + 14, CFG.boardEdge, 14);
+    const done = clearT > 0;
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const x = BX + c * cell, y = BY + r * cell, k = reg[r][c], w = wrong.find((o) => o.r === r && o.c === c), sx = w ? Math.sin(w.t * 40) * 3 : 0;
+      g.rect(x, y, cell, cell, colors[k]);
+      if (w) g.rect(x, y, cell, cell, 'rgba(239,68,68,' + (w.t * 0.9).toFixed(2) + ')');
+      const v = cells[r][c], cx = x + cell / 2 + sx, cy = y + cell / 2;
+      if (v === 1 || v === 3) { const d = cell * 0.16, col = v === 1 ? CFG.markColor : CFG.autoMarkColor; g.line(cx - d, cy - d, cx + d, cy + d, col, v === 1 ? 2.6 : 2); g.line(cx + d, cy - d, cx - d, cy + d, col, v === 1 ? 2.6 : 2); }
+      else if (v === 2) { const age = g.t - born[r][c], sc = Math.min(1, age * 5) * (1 + Math.max(0, 0.25 - age) * 1.2), bounce = done ? Math.abs(Math.sin(g.t * 8 + r + c)) * cell * 0.12 : 0; g.emoji(CFG.items[k % CFG.items.length], cx, cy - bounce, cell * 0.7 * sc); }
+    }
+    // grid lines: thin inside a color, thick between colors
+    ctx.lineCap = 'round';
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const x = BX + c * cell, y = BY + r * cell;
+      if (c < N - 1) { const thick = reg[r][c] !== reg[r][c + 1]; g.line(x + cell, y, x + cell, y + cell, thick ? CFG.boardEdge : CFG.lineColor, thick ? 3 : 1); }
+      if (r < N - 1) { const thick = reg[r][c] !== reg[r + 1][c]; g.line(x, y + cell, x + cell, y + cell, thick ? CFG.boardEdge : CFG.lineColor, thick ? 3 : 1); }
+    }
+    if (kbd) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.roundRect(BX + cur[1] * cell + 2, BY + cur[0] * cell + 2, cell - 4, cell - 4, 6); ctx.stroke(); }
+    // rules + buttons
+    const ry = BY + cell * N + 28;
+    g.text('1 ' + CFG.noun + ' per row · column · color', 180, ry, { size: 13, weight: 800, color: '#ffffffcc' });
+    g.text(CFG.noun[0].toUpperCase() + CFG.noun.slice(1) + 's can never touch, not even corners', 180, ry + 20, { size: 12, weight: 700, color: '#ffffff99' });
+    button(g, HINT, '💡 Hint ×' + hints, false); button(g, AUTO, (autoMark ? '✓' : '✕') + ' Auto ✕', autoMark);
+    g.text(catsPlaced() + ' / ' + N + ' ' + CFG.noun + 's', 180, HINT.y + 44, { size: 12, weight: 900, color: CFG.accent });
+  },
+};
+Kit.game(GAME);
+</script>
+</body>
+</html>

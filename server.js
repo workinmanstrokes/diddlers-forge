@@ -18,7 +18,7 @@ const { spawn, exec } = require('child_process');
 const Build = require('./public/shared/build.js');
 const Harness = require('./public/shared/harness.js');
 
-const VERSION = '3.3.0';
+const VERSION = '3.4.0';
 const argv = process.argv.slice(2);
 const arg = (/** @type {string} */ name, /** @type {string} */ def) => { const i = argv.indexOf('--' + name); return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : def; };
 const flag = (/** @type {string} */ name) => argv.includes('--' + name);
