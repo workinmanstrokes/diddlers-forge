@@ -13,7 +13,7 @@
 const CFG = {
   "title": "Zombie Survival",
   "emoji": "🧟",
-  "help": "Drag to move. You aim and shoot on your own. Survive every wave!",
+  "help": "Drag to move. You aim and shoot on your own. Grab green gems to level up and pick a new power. Survive every wave!",
   "accent": "#a3e635",
   "floor": "#121a14",
   "floorLine": "#1b2a1e",
@@ -33,7 +33,9 @@ const CFG = {
   "enemySpeed": 40,
   "waveSeconds": 20,
   "spawnRate": 1.1,
-  "bruteEvery": 3
+  "bruteEvery": 3,
+  "xpFirst": 5,
+  "xpGrowth": 1.32
 };
 
 // GAME
@@ -46,8 +48,11 @@ const UPGRADES = [
   { icon: '💥', title: 'Damage up', desc: '+1 damage', apply: (P) => { P.dmg++; } },
   { icon: '🌀', title: 'Orbit blade', desc: 'A blade circles you', apply: (P) => { P.blades++; } },
   { icon: '❤️', title: 'Patch up', desc: '+2 lives', apply: (P, g) => { g.lives += 2; } },
+  { icon: '🔭', title: 'Long range', desc: 'Shoot from farther away', apply: (P) => { P.range += 45; } },
+  { icon: '💫', title: 'Nova', desc: 'Blast all close zombies every 4s', apply: (P) => { P.nova++; } },
 ];
-let P, foes, shots, gems, wave, waveT, spawnT, cool, stick, wavePause;
+const canTake = (u) => !(u.title === 'Multishot' && P.guns >= 6) && !(u.title === 'Orbit blade' && P.blades >= 5) && !(u.title === 'Long range' && P.range >= 400) && !(u.title === 'Nova' && P.nova >= 3);
+let P, foes, shots, gems, wave, waveT, spawnT, cool, stick, wavePause, ups;
 
 function startWave(g) {
   wave++; g.level = wave; waveT = CFG.waveSeconds; spawnT = 1.2;
@@ -57,7 +62,7 @@ function startWave(g) {
 function spawnFoe(g, o) {
   const side = g.randi(0, 3), m = 30, X = g.viewX, Y = g.viewY, W = g.viewW, H = g.viewH;
   const x = side === 0 ? X - m : side === 1 ? X + W + m : g.rand(X, X + W), y = side === 2 ? Y - m : side === 3 ? Y + H + m : g.rand(Y, Y + H);
-  const hp = 1 + Math.floor(wave / 3);
+  const hp = 1 + Math.floor(wave / 3) + Math.floor(wave * wave / 45);
   foes.push(Object.assign({ x, y, r: 14, hp, max: hp, sp: g.rand(0.85, 1.15), em: g.pick(CFG.enemies), hit: 0, bob: g.rand(0, 6), cd: {} }, o || {}));
 }
 function damage(g, e, n, x, y) {
@@ -72,20 +77,26 @@ function damage(g, e, n, x, y) {
   return true;
 }
 function endWave(g) {
-  wavePause = true; g.flash('#fff', 0.35); g.shake(8); g.sfx('explode');
+  wavePause = 2.2; g.flash('#fff', 0.35); g.shake(8); g.sfx('explode');
   for (const e of foes.slice()) { g.particles(e.x, e.y, { color: [CFG.accent, '#fff'], n: 8, speed: 160 }); gems.push({ x: e.x, y: e.y, t: 0 }); }
-  foes = []; g.banner('WAVE CLEARED!');
-  g.after(0.9, () => {
-    const pool = UPGRADES.slice().sort(() => Math.random() - 0.5).slice(0, 3);
-    g.choose(pool, (i, u) => { u.apply(P, g); g.floatText(P.x, P.y - 40, u.title + '!', CFG.accent, 20); wavePause = false; startWave(g); }, { title: 'Pick an upgrade', sub: 'Wave ' + wave + ' survived' });
-  });
+  foes = []; for (const m of gems) m.vac = true; g.banner('WAVE ' + wave + ' CLEARED!', 'Gems fly to you…');
+}
+function gainXp(g, n) {
+  P.xp += n;
+  while (P.xp >= P.need) { P.xp -= P.need; P.lvl++; P.need = Math.round(CFG.xpFirst * Math.pow(CFG.xpGrowth, P.lvl - 1)); ups++; }
+  if (ups && g.state === 'play') levelUp(g);
+}
+function levelUp(g) {
+  ups--; g.sfx('power'); g.flash(CFG.accent, 0.2); g.particles(P.x, P.y, { color: [CFG.accent, '#fff', '#fde047'], n: 30, speed: 220 });
+  const pool = UPGRADES.filter(canTake).sort(() => Math.random() - 0.5).slice(0, 3);
+  g.choose(pool, (i, u) => { u.apply(P, g); g.floatText(P.x, P.y - 40, u.title + '!', CFG.accent, 20); P.inv = Math.max(P.inv, 1); if (ups) g.after(0.25, () => { if (ups && g.state === 'play') levelUp(g); }); }, { title: 'LEVEL ' + P.lvl + '!', sub: 'Pick a power', timeout: 10 });
 }
 
-Kit.game({
-  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.floor, lives: CFG.lives, music: CFG.music,
+const GAME = {
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.floor, lives: CFG.lives, music: CFG.music, overEmoji: '🧟',
   init(g) {
-    P = { x: 180, y: 360, r: 14, inv: 2, rate: CFG.fireRate, guns: 1, pierce: 0, speed: CFG.moveSpeed, magnet: 34, dmg: 1, blades: 0, face: 1 };
-    foes = []; shots = []; gems = []; wave = 0; waveT = 1; spawnT = 1; cool = 0; stick = null; wavePause = false;
+    P = { x: 180, y: 360, r: 14, inv: 2, rate: CFG.fireRate, guns: 1, pierce: 0, speed: CFG.moveSpeed, magnet: 56, dmg: 1, blades: 0, face: 1, range: CFG.range, nova: 0, novaT: 4, xp: 0, lvl: 1, need: CFG.xpFirst };
+    foes = []; shots = []; gems = []; wave = 0; waveT = 1; spawnT = 1; cool = 0; stick = null; wavePause = 0; ups = 0;
   },
   update(g, dt) {
     if (!wave) startWave(g);
@@ -96,13 +107,14 @@ Kit.game({
     P.x = g.clamp(P.x, g.viewX + 16, g.viewX + g.viewW - 16); P.y = g.clamp(P.y, Math.max(g.viewY, 0) + 70, g.viewY + g.viewH - 20);
     P.inv -= dt;
 
-    if (!wavePause) {
+    if (wavePause) { wavePause -= dt; const done = wavePause <= 0 && !gems.some((m) => !m.heart); if (done || wavePause <= -3) { gems = gems.filter((m) => !m.vac || m.heart); wavePause = 0; startWave(g); } }
+    else {
       waveT -= dt; spawnT -= dt;
       if (spawnT <= 0 && foes.length < 70) { spawnT = 1 / (CFG.spawnRate * (1 + wave * 0.35)); spawnFoe(g); if (wave > 2 && g.chance(0.3)) spawnFoe(g); }
       if (waveT <= 0) { endWave(g); return; }
     }
 
-    let near = null, nd = CFG.range;
+    let near = null, nd = P.range;
     for (const e of foes) { const d = g.dist(e, P); if (d < nd) { nd = d; near = e; } }
     cool -= dt;
     if (near && cool <= 0) {
@@ -120,6 +132,8 @@ Kit.game({
       if (gone) shots.splice(i, 1);
     }
 
+    if (P.nova) { P.novaT -= dt; if (P.novaT <= 0 && foes.length) { P.novaT = 4 / P.nova * 1.2; P.novaFx = 0.35; g.sfx('explode'); g.shake(4); for (const e of foes.slice()) if (g.dist(e, P) < 110) damage(g, e, P.dmg + 1, e.x, e.y); } }
+    if (P.novaFx > 0) P.novaFx -= dt;
     const ang = g.t * 3.2;
     for (let b = 0; b < P.blades; b++) {
       const a = ang + b * Math.PI * 2 / P.blades, bx = P.x + Math.cos(a) * 52, by = P.y + Math.sin(a) * 52;
@@ -134,7 +148,7 @@ Kit.game({
         if (d2 < rr * rr && d2 > 0.01) { const d = Math.sqrt(d2), push = (rr - d) * 0.5; e.x += dx / d * push; e.y += dy / d * push; }
       }
       if (P.inv <= 0 && g.dist(e, P) < e.r + P.r - 2) {
-        P.inv = 1.2; g.loseLife(); g.particles(P.x, P.y, { color: ['#ef4444', '#fff'], n: 16 });
+        P.inv = 1.2; GAME.overText = 'Reached wave ' + wave + ' · level ' + P.lvl; g.loseLife(); g.particles(P.x, P.y, { color: ['#ef4444', '#fff'], n: 16 });
         for (const o of foes) { const d = g.dist(o, P); if (d < 90) { const k = g.angle(P, o); o.x += Math.cos(k) * (90 - d); o.y += Math.sin(k) * (90 - d); } }
         if (g.state !== 'play') return;
       }
@@ -142,12 +156,12 @@ Kit.game({
 
     for (let i = gems.length - 1; i >= 0; i--) {
       const m = gems[i]; m.t += dt; const d = g.dist(m, P);
-      if (d < P.magnet) { const a = g.angle(m, P); m.x += Math.cos(a) * 320 * dt; m.y += Math.sin(a) * 320 * dt; }
+      if (d < P.magnet || (m.vac && !m.heart)) { const a = g.angle(m, P), v = m.vac ? 420 + m.t * 60 : 320; m.x += Math.cos(a) * v * dt; m.y += Math.sin(a) * v * dt; }
       if (d < 18) {
         gems.splice(i, 1);
         if (m.heart) { g.lives = Math.min(CFG.lives + 3, g.lives + 1); g.sfx('power'); g.floatText(P.x, P.y - 34, '+1 ❤️', '#fca5a5'); }
-        else { g.addScore(5); if (g.chance(0.35)) g.sfx('coin'); }
-      } else if (m.t > 14) gems.splice(i, 1);
+        else { g.addScore(5); if (g.chance(0.35)) g.sfx('coin'); gainXp(g, 1); if (g.state !== 'play') return; }
+      } else if (m.t > 14 && !m.vac) gems.splice(i, 1);
     }
   },
   draw(g, ctx) {
@@ -159,7 +173,7 @@ Kit.game({
     ctx.stroke();
     g.backdrop('bokeh', { tint: [CFG.fog], speed: 0.5, alpha: 0.4 });
     if (!P) return;
-    for (const m of gems) g.emoji(m.heart ? CFG.heart : CFG.gem, m.x, m.y + Math.sin(m.t * 6) * 2, m.heart ? 18 : 13);
+    for (const m of gems) g.emoji(m.heart ? CFG.heart : CFG.gem, m.x, m.y + Math.sin(m.t * 6) * 2, m.heart ? 18 : 15);
     for (const e of foes) {
       const sz = e.brute ? 62 : 30;
       g.circle(e.x, e.y + sz * 0.42, sz * 0.32, 'rgba(0,0,0,.35)');
@@ -169,6 +183,7 @@ Kit.game({
     }
     ctx.globalCompositeOperation = 'lighter';
     for (const b of shots) { g.circle(b.x, b.y, 6, CFG.bulletColor + '55'); g.circle(b.x, b.y, 2.6, '#fff'); }
+    if (P.novaFx > 0) { const k = 1 - P.novaFx / 0.35; g.ring(P.x, P.y, 20 + k * 95, CFG.accent, 6 * (1 - k)); }
     for (let b = 0; b < P.blades; b++) { const a = g.t * 3.2 + b * Math.PI * 2 / P.blades; g.circle(P.x + Math.cos(a) * 52, P.y + Math.sin(a) * 52, 9, CFG.accent + '88'); g.circle(P.x + Math.cos(a) * 52, P.y + Math.sin(a) * 52, 4, '#fff'); }
     ctx.globalCompositeOperation = 'source-over';
     g.circle(P.x, P.y + 15, 11, 'rgba(0,0,0,.4)');
@@ -176,10 +191,15 @@ Kit.game({
       ctx.save(); ctx.translate(P.x, P.y); ctx.scale(P.face < 0 ? -1 : 1, 1); g.emoji(CFG.player, 0, Math.sin(g.t * 10) * (g.input.down ? 1.5 : 0.4), 34); ctx.restore();
     }
     const v = ctx.createRadialGradient(P.x, P.y, 120, P.x, P.y, 460); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.6)'); ctx.fillStyle = v; ctx.fillRect(X, Y, W, H);
-    if (g.state === 'play' && !wavePause) { const w = 140; g.rect(180 - w / 2, 78, w, 5, 'rgba(255,255,255,.15)', 3); g.rect(180 - w / 2, 78, w * Math.max(0, waveT / CFG.waveSeconds), 5, CFG.accent, 3); }
+    if (g.state === 'play' || g.state === 'choose') {
+      const w = Math.min(260, g.viewW - 90), x0 = 180 - w / 2 + 14, y0 = g.viewY + 66;
+      g.rect(x0, y0, w, 10, 'rgba(0,0,0,.55)', 5); g.rect(x0, y0, w * Math.min(1, P.xp / P.need), 10, CFG.accent, 5); g.ring(x0 - 18, y0 + 5, 15, CFG.accent, 2.5); g.circle(x0 - 18, y0 + 5, 13.5, 'rgba(0,0,0,.6)'); g.text(String(P.lvl), x0 - 18, y0 + 5, { size: 13, weight: 900 });
+      g.text(wavePause ? 'Wave ' + wave + ' cleared' : 'Wave ' + wave + ' · ' + Math.ceil(Math.max(0, waveT)) + 's', 180, y0 + 26, { size: 12, weight: 800, color: '#ffffffaa' });
+    }
     if (stick && g.state === 'play') { g.ring(stick.x, stick.y, 34, 'rgba(255,255,255,.25)', 2); const dx = g.clamp(g.input.x - stick.x, -34, 34), dy = g.clamp(g.input.y - stick.y, -34, 34); g.circle(stick.x + dx, stick.y + dy, 14, 'rgba(255,255,255,.3)'); }
   },
-});
+};
+Kit.game(GAME);
 </script>
 </body>
 </html>

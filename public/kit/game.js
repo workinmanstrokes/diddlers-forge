@@ -154,7 +154,10 @@
     '.kit-banner.go{animation:kitbn 1.6s ease-out forwards}@keyframes kitbn{0%{opacity:0;transform:scale(.6)}12%{opacity:1;transform:scale(1.08)}22%{transform:scale(1)}78%{opacity:1}100%{opacity:0;transform:translateY(-14px)}}' +
     '.kit-chs{display:flex;flex-direction:column;gap:10px;margin-top:14px}.kit-ch{display:flex;align-items:center;gap:12px;width:100%;min-height:62px;padding:10px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font:inherit;text-align:left;cursor:pointer;transition:transform .1s,background .15s}' +
     '.kit-ch:hover,.kit-ch:focus-visible{background:color-mix(in srgb,var(--kit-accent,#7c5cff) 35%,transparent);outline:none}.kit-ch:active{transform:scale(.97)}.kit-ch i{font-style:normal;font-size:30px;line-height:1;pointer-events:none}.kit-ch b{display:block;font-size:16px;pointer-events:none}.kit-ch small{display:block;opacity:.75;font-size:13px;margin-top:2px;pointer-events:none}.kit-ch span{pointer-events:none}' +
-    '.kit-cd{margin-top:12px;font-size:12px;opacity:.6}';
+    '.kit-cd{margin-top:12px;font-size:12px;opacity:.6}' +
+    '.kit-btns{position:fixed;right:max(14px,env(safe-area-inset-right));bottom:calc(20px + env(safe-area-inset-bottom));display:none;gap:14px;align-items:flex-end;z-index:6;touch-action:none;-webkit-user-select:none;user-select:none}' +
+    '.kit-pad{width:66px;height:66px;border-radius:50%;border:2px solid rgba(255,255,255,.45);background:color-mix(in srgb,var(--c,#7c5cff) 58%,transparent);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);color:#fff;font:900 12px ui-rounded,system-ui,sans-serif;letter-spacing:.04em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;box-shadow:0 6px 18px rgba(0,0,0,.4),inset 0 2px 0 rgba(255,255,255,.25);touch-action:none;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent}' +
+    '.kit-btns{flex-direction:row-reverse}.kit-pad i{font-style:normal;font-size:22px;line-height:1;pointer-events:none}.kit-pad span{pointer-events:none}.kit-pad.on{transform:scale(.9);filter:brightness(1.3)}';
 
   Kit.game = function (cfg) {
     cfg = cfg || {};
@@ -223,13 +226,14 @@
     window.addEventListener('keydown', function (e) {
       audio();
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].indexOf(e.key) >= 0) e.preventDefault();
-      if (!inp.keys[e.key]) { inp._kp[e.key] = true; if (ACTION_KEYS[e.key]) inp.action = true; if (SWIPE_KEYS[e.key]) inp.swipe = SWIPE_KEYS[e.key]; }
+      if (!inp.keys[e.key]) { inp._kp[e.key] = true; if (ACTION_KEYS[e.key]) inp.action = true; if (SWIPE_KEYS[e.key]) inp.swipe = SWIPE_KEYS[e.key]; if (btnKeys[e.key]) btnPressed[btnKeys[e.key]] = true; }
+      if (btnKeys[e.key]) btnState[btnKeys[e.key]] = true;
       inp.keys[e.key] = true;
       if (g.state === 'choose') { if (/^[1-9]$/.test(e.key)) pick(Number(e.key) - 1); else if (e.key === ' ' || e.key === 'Enter') pick(0); return; }
       if (e.key === 'Escape' || e.key === 'p') { togglePause(); return; }
       if (g.state !== 'play' && (ACTION_KEYS[e.key])) onAnyAction();
     });
-    window.addEventListener('keyup', function (e) { inp.keys[e.key] = false; });
+    window.addEventListener('keyup', function (e) { inp.keys[e.key] = false; if (btnKeys[e.key]) btnState[btnKeys[e.key]] = false; });
     function computeAxis() {
       var ax = (inp.keys.ArrowRight || inp.keys.d || inp.keys.D ? 1 : 0) - (inp.keys.ArrowLeft || inp.keys.a || inp.keys.A ? 1 : 0);
       var ay = (inp.keys.ArrowDown || inp.keys.s || inp.keys.S ? 1 : 0) - (inp.keys.ArrowUp || inp.keys.w || inp.keys.W ? 1 : 0);
@@ -239,7 +243,28 @@
       }
       inp.axis.x = ax; inp.axis.y = ay;
     }
-    function clearFrameInput() { inp.pressed = inp.released = inp.tap = inp.action = false; inp.swipe = null; inp.dragX = inp.dragY = 0; inp._kp = {}; }
+    function clearFrameInput() { inp.pressed = inp.released = inp.tap = inp.action = false; inp.swipe = null; inp.dragX = inp.dragY = 0; inp._kp = {}; btnPressed = {}; }
+
+    // ---------- on-screen action buttons (work while the other thumb drags): g.buttons([{id, label, icon, key, color}]) ----------
+    var btnBox = null, btnState = {}, btnPressed = {}, btnKeys = {};
+    inp.button = function (id) { return !!btnState[id]; };
+    inp.buttonPressed = function (id) { return !!btnPressed[id]; };
+    g.buttons = function (list) {
+      if (btnBox) btnBox.remove(); btnKeys = {}; btnState = {};
+      btnBox = document.createElement('div'); btnBox.className = 'kit-btns';
+      (list || []).forEach(function (b) {
+        var el = document.createElement('button'); el.type = 'button'; el.className = 'kit-pad'; el.setAttribute('aria-label', b.label || b.id);
+        el.innerHTML = (b.icon ? '<i>' + esc(b.icon) + '</i>' : '') + '<span>' + esc(b.label || b.id) + '</span>';
+        if (b.color) el.style.setProperty('--c', b.color);
+        var on = function (e) { e.preventDefault(); e.stopPropagation(); audio(); if (!btnState[b.id]) btnPressed[b.id] = true; btnState[b.id] = true; el.classList.add('on'); try { el.setPointerCapture(e.pointerId); } catch (er) {} };
+        var off = function () { btnState[b.id] = false; el.classList.remove('on'); };
+        el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off); el.addEventListener('pointercancel', off); el.addEventListener('lostpointercapture', off);
+        el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+        [].concat(b.key || []).forEach(function (k) { btnKeys[k] = b.id; });
+        btnBox.appendChild(el);
+      });
+      document.body.appendChild(btnBox); hudShown = null;
+    };
 
     // ---------- effects ----------
     var parts = [], floats = [], timers = [], shakeT = 0, shakeA = 0, flashA = 0, flashC = '#fff';
@@ -277,7 +302,7 @@
     };
     g.emoji = function (ch, x, y, size, rot) {
       ctx.save(); ctx.translate(x, y); if (rot) ctx.rotate(rot); ctx.font = (size || 32) + 'px system-ui,"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(ch, 0, size * 0.06 || 0); ctx.restore();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText(ch, 0, size * 0.06 || 0); ctx.restore();
     };
     g.glow = function (c, blur) { ctx.shadowColor = c || accent; ctx.shadowBlur = blur == null ? 16 : blur; };
     g.noGlow = function () { ctx.shadowBlur = 0; };
@@ -469,7 +494,7 @@
       ctx.globalAlpha = 1;
       if (flashA > 0) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = flashA; ctx.fillStyle = flashC; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.globalAlpha = 1; }
       var hudOn = showHud && (g.state === 'play' || g.state === 'pause' || g.state === 'choose');
-      if (hudOn !== hudShown) { hudShown = hudOn; hud.style.display = hudOn ? 'flex' : 'none'; }
+      if (hudOn !== hudShown) { hudShown = hudOn; hud.style.display = hudOn ? 'flex' : 'none'; if (btnBox) btnBox.style.display = hudOn && g.state !== 'choose' ? 'flex' : 'none'; }
       if (hudOn) {
         if (g.score !== lastScore) { lastScore = g.score; elScore.textContent = fmtScore(g.score); elBest.textContent = g.best ? 'BEST ' + fmtScore(g.best) : ''; }
         if (g.lives !== lastLives) { lastLives = g.lives; elLives.textContent = cfg.lives ? new Array(Math.max(0, Math.min(10, g.lives)) + 1).join(cfg.lifeIcon || '❤️') : ''; }

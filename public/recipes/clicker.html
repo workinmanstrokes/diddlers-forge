@@ -8,7 +8,9 @@
 <script src="kit/game.js"></script>
 <style>
 #shop{position:fixed;left:0;right:0;bottom:0;height:46%;max-height:420px;z-index:6;display:none;flex-direction:column;background:var(--panel);border-top:1px solid rgba(255,255,255,.16);border-radius:22px 22px 0 0;box-shadow:0 -12px 30px rgba(0,0,0,.45);padding:10px 12px calc(10px + env(safe-area-inset-bottom));font-family:ui-rounded,system-ui,sans-serif;color:#fff;box-sizing:border-box}
-#shop h3{margin:2px 4px 8px;font-size:13px;letter-spacing:.1em;opacity:.8;display:flex;justify-content:space-between}
+#shop h3{margin:0 4px 8px;font-size:13px;letter-spacing:.1em;display:flex;justify-content:space-between;align-items:center}#shop h3>span{opacity:.85}
+#shop h3 #qty{min-width:64px;min-height:44px;margin-left:8px;font-size:13px;letter-spacing:.04em;background:rgba(255,255,255,.14);color:#fff;box-shadow:none;border:1px solid rgba(255,255,255,.25)}
+#shop .pb{height:5px;border-radius:3px;background:rgba(255,255,255,.14);margin-top:5px;overflow:hidden}#shop .pb span{display:block;height:100%;width:0;border-radius:3px;background:var(--accent);transition:width .25s}
 #shop .list{overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:8px;overscroll-behavior:contain;touch-action:pan-y;padding-bottom:6px}
 #shop .row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.08)}
 #shop .row i{font-style:normal;font-size:28px;width:36px;text-align:center;line-height:1}
@@ -20,7 +22,7 @@
 </style>
 </head>
 <body>
-<div id="shop"><h3><span>UPGRADES</span><span id="rate"></span></h3><div class="list"></div></div>
+<div id="shop"><h3><span>UPGRADES</span><span id="rate"></span><button type="button" id="qty">BUY x1</button></h3><div class="list"></div></div>
 <script>
 // TUNING — change these first: names, colors, emoji, prices, earnings
 const CFG = {
@@ -48,6 +50,8 @@ const CFG = {
   ],
   "tapPower": 1,
   "costGrowth": 1.15,
+  "milestones": [10, 25, 50, 100, 200, 300, 400],
+  "milestoneBoost": 2,
   "goldenEvery": 45,
   "frenzyMultiplier": 7,
   "prestigeAt": 1000000,
@@ -60,8 +64,18 @@ const money = (n) => CFG.currency + (n < 100 && n % 1 ? n.toFixed(1) : Kit.fmt(n
 let S, squash, gold, frenzy, saveT, uiT, welcome, rows, shop, list, tapCount;
 
 const mult = () => (1 + S.stars * 0.25) * (frenzy > 0 ? CFG.frenzyMultiplier : 1);
-const rate = () => CFG.earners.reduce((a, e, i) => a + (S.own[i] || 0) * e.rate, 0) * mult();
-const cost = (i) => Math.ceil(CFG.earners[i].cost * Math.pow(CFG.costGrowth, S.own[i] || 0));
+const stage = (i) => CFG.milestones.filter((m) => (S.own[i] || 0) >= m).length;
+const boost = (i) => Math.pow(CFG.milestoneBoost, stage(i));
+const nextMile = (i) => CFG.milestones.find((m) => (S.own[i] || 0) < m);
+const rate = () => CFG.earners.reduce((a, e, i) => a + (S.own[i] || 0) * e.rate * boost(i), 0) * mult();
+const QTY = [1, 10, 'max'];
+// price of the next n of earner i (geometric series); 'max' = as many as you can afford (at least 1)
+function howMany(i) {
+  const q = QTY[S.qty || 0], g = CFG.costGrowth, base = CFG.earners[i].cost * Math.pow(g, S.own[i] || 0);
+  if (q !== 'max') return q;
+  return Math.max(1, Math.floor(Math.log(Kit.current.score * (g - 1) / base + 1) / Math.log(g)));
+}
+const cost = (i, n) => { const g = CFG.costGrowth; n = n || 1; return Math.ceil(CFG.earners[i].cost * Math.pow(g, S.own[i] || 0) * (Math.pow(g, n) - 1) / (g - 1)); };
 const tapCost = () => Math.ceil(50 * Math.pow(6, S.tapLvl));
 const tapValue = () => (CFG.tapPower * Math.pow(2, S.tapLvl) + rate() * 0.04 / (frenzy > 0 ? CFG.frenzyMultiplier : 1)) * mult();
 
@@ -76,7 +90,16 @@ function buildShop(g) {
     return { row, b: row.querySelector('b'), small: row.querySelector('small'), btn: row.querySelector('button') };
   };
   rows.push({ kind: 'tap', ...add('👆', (g) => { const c = tapCost(); if (g.score < c) return need(g, c); g.score -= c; S.tapLvl++; g.sfx('power'); g.floatText(CX, CY - CR - 20, 'TAPS x2!', CFG.accent, 22); save(g); }) });
-  CFG.earners.forEach((e, i) => rows.push({ kind: 'earner', i, ...add(e.icon, (g) => { const c = cost(i); if (g.score < c) return need(g, c); g.score -= c; S.own[i] = (S.own[i] || 0) + 1; g.sfx('coin'); g.particles(CX, CY, { color: [CFG.accent, '#fff'], n: 16, speed: 200 }); save(g); }) }));
+  CFG.earners.forEach((e, i) => {
+    const r = { kind: 'earner', i, ...add(e.icon, (g) => {
+      const n = howMany(i), c = cost(i, n); if (g.score < c) return need(g, c);
+      const before = stage(i); g.score -= c; S.own[i] = (S.own[i] || 0) + n; g.sfx('coin'); g.particles(CX, CY, { color: [CFG.accent, '#fff'], n: 16, speed: 200 });
+      if (stage(i) > before) { g.banner(e.icon + ' ' + e.name + ' x' + Math.pow(CFG.milestoneBoost, stage(i) - before) + '!', 'Own ' + CFG.milestones[stage(i) - 1] + ' → earnings boosted'); g.sfx('win'); g.flash(CFG.accent, 0.3); g.particles(CX, CY, { color: [CFG.accent, '#fff', '#fde047'], n: 40, speed: 280 }); }
+      save(g); renderShop(g);
+    }) };
+    const pb = document.createElement('div'); pb.className = 'pb'; pb.innerHTML = '<span></span>'; r.row.querySelector('.m').appendChild(pb); r.pb = pb.firstChild;
+    rows.push(r);
+  });
   rows.push({ kind: 'star', ...add('⭐', (g) => {
     if (S.total < CFG.prestigeAt) return need(g, CFG.prestigeAt - S.total + g.score);
     g.choose([{ icon: '⭐', title: 'Prestige now', desc: 'Start over with +1 star (+25% earnings forever)' }, { icon: '✋', title: 'Not yet', desc: 'Keep growing this run' }], (k) => {
@@ -84,16 +107,21 @@ function buildShop(g) {
     }, { title: 'Prestige?', sub: 'Your businesses reset, but stars make everything earn more.' });
   }, true) });
 }
+function cycleQty(g) { S.qty = ((S.qty || 0) + 1) % QTY.length; g.sfx('tick'); renderShop(g); }
 function need(g, c) { g.sfx('hit'); g.floatText(CX, CY + CR + 26, 'Need ' + money(c - g.score) + ' more', '#fca5a5', 16); }
 function renderShop(g) {
   const r = rate(); document.getElementById('rate').textContent = money(r) + '/sec';
+  const q = QTY[S.qty || 0]; document.getElementById('qty').textContent = q === 'max' ? 'BUY MAX' : 'BUY x' + q;
   for (const x of rows) {
     if (x.kind === 'tap') { x.b.textContent = 'Stronger taps'; x.small.textContent = '+' + money(tapValue()) + ' per tap now'; x.btn.textContent = money(tapCost()); x.btn.classList.toggle('off', g.score < tapCost()); }
     else if (x.kind === 'earner') {
       const e = CFG.earners[x.i], own = S.own[x.i] || 0, locked = x.i > 0 && !(S.own[x.i - 1] > 0) && own === 0;
       x.row.style.display = locked && x.i > 1 && !(S.own[x.i - 2] > 0) ? 'none' : '';
       x.b.textContent = (locked ? '🔒 ' : '') + e.name + (own ? ' ×' + own : '');
-      x.small.textContent = '+' + money(e.rate * mult()) + '/sec each'; x.btn.textContent = money(cost(x.i)); x.btn.classList.toggle('off', g.score < cost(x.i));
+      const n = howMany(x.i), c = cost(x.i, n), nx = nextMile(x.i), prev = CFG.milestones[stage(x.i) - 1] || 0;
+      x.small.textContent = '+' + money(e.rate * boost(x.i) * mult()) + '/sec each' + (nx ? ' · x' + CFG.milestoneBoost + ' at ' + nx : ' · maxed!');
+      x.pb.style.width = (nx ? Math.min(100, (own - prev) / (nx - prev) * 100) : 100) + '%';
+      x.btn.textContent = (n > 1 ? n + ' · ' : '') + money(c); x.btn.classList.toggle('off', g.score < c);
     } else { x.row.style.display = S.total >= CFG.prestigeAt * 0.5 || S.stars ? '' : 'none'; x.b.textContent = 'Prestige' + (S.stars ? ' (' + S.stars + '★)' : ''); x.small.textContent = 'Reset for +25% forever'; x.btn.textContent = S.total >= CFG.prestigeAt ? 'Go!' : money(CFG.prestigeAt); x.btn.classList.toggle('off', S.total < CFG.prestigeAt); }
   }
 }
@@ -108,7 +136,7 @@ Kit.game({
     welcome = 0;
     if (S.t) { const secs = Math.min(CFG.offlineHours * 3600, (Date.now() - S.t) / 1000), r = rate(); if (r > 0 && secs > 30) { welcome = r * secs * 0.5; earn(g, welcome); } }
     S.nextGold = CFG.goldenEvery * 0.5;
-    if (!rows) buildShop(g);
+    if (!rows) { buildShop(g); document.getElementById('qty').addEventListener('click', () => cycleQty(g)); }
     if (!g.data.vis) { g.data.vis = 1; document.addEventListener('visibilitychange', () => { if (document.hidden && S) save(g); }); }
   },
   update(g, dt) {

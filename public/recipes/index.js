@@ -6,7 +6,7 @@
  * Themes are CFG overrides you can apply with one tap and no AI at all. */
 (function (root) {
   'use strict';
-  /** @type {{id:string,type:'game'|'app',name:string,emoji:string,prompt:string,strong:string[],weak:string[],themes:{name:string,emoji:string,cfg:Record<string,any>}[]}[]} */
+  /** @type {{id:string,type:'game'|'app',name:string,emoji:string,prompt:string,strong:string[],weak:string[],avoid?:string[],themes:{name:string,emoji:string,cfg:Record<string,any>}[]}[]} */
   const LIST = [
     { id: 'shooter', type: 'game', name: 'Space Blaster', emoji: '🚀',
       prompt: 'Vertical space shooter: drag to fly, lasers fire on their own, enemy waves in formations, power-ups (spread shot, shield, extra life), an upgrade pick every other wave and a boss every 4th wave.',
@@ -15,8 +15,8 @@
         { name: 'Sky Ace', emoji: '✈️', cfg: { title: 'Sky Ace', emoji: '✈️', player: '✈️', playerAngle: -45, enemies: ['🛩️', '🎈', '🦅'], boss: '🐲', bgTop: '#0c4a6e', bgBottom: '#7dd3fc', backdrop: 'clouds', accent: '#facc15', bulletColor: '#fde047', enemyBulletColor: '#f97316', music: 'arcade' } },
         { name: 'Ocean Defender', emoji: '🐬', cfg: { title: 'Deep Sea Defender', emoji: '🐬', player: '🐬', playerAngle: 90, enemies: ['🦈', '🐙', '🦑'], boss: '🐋', bgTop: '#020617', bgBottom: '#0e7490', backdrop: 'bubbles', accent: '#2dd4bf', bulletColor: '#a5f3fc', enemyBulletColor: '#fb7185', music: 'chill' } }] },
     { id: 'arena', type: 'game', name: 'Zombie Survival', emoji: '🧟',
-      prompt: 'Top-down zombie survival: drag to move, auto-aim shooting, 20-second waves that grow, gems and hearts to grab, pick 1 of 3 upgrades after each wave (multishot, piercing, orbit blades…) and a brute every 3rd wave.',
-      strong: ['zombie', 'zombies', 'survival', 'survivor', 'survivors', 'horde', 'top-down', 'top down', 'twin-stick', 'twin stick', 'undead'], weak: ['waves', 'wave', 'arena', 'monsters', 'upgrades', 'roguelite', 'roguelike'],
+      prompt: 'Bullet-heaven zombie survival: drag to move, auto-aim shooting, XP gems that level you up mid-fight (pick 1 of 3 powers: multishot, piercing, orbit blades, nova…), 20-second waves that grow and a brute every 3rd wave.',
+      strong: ['survival', 'survivor', 'survivors', 'horde', 'hordes', 'bullet heaven', 'vampire survivors', 'auto shooter', 'auto-shooter', 'twin-stick', 'twin stick', 'arena shooter', 'zombie game', 'zombie survival', 'zombie shooter', 'zombie apocalypse', 'shoot zombies', 'kill zombies'], weak: ['zombie', 'zombies', 'undead', 'top-down', 'top down', 'waves', 'wave', 'arena', 'monsters', 'upgrades', 'level up', 'xp', 'roguelite', 'roguelike'],
       themes: [{ name: 'Zombie Night', emoji: '🧟', cfg: {} },
         { name: 'Monster Mash', emoji: '👻', cfg: { title: 'Monster Mash', emoji: '👻', player: '🧙', enemies: ['👻', '💀', '🎃'], brute: '👺', gem: '💜', floor: '#1a1025', floorLine: '#2a1838', fog: '#c084fc', accent: '#c084fc', bulletColor: '#f0abfc' } },
         { name: 'Bug Blaster', emoji: '🐛', cfg: { title: 'Bug Blaster', emoji: '🐛', player: '🧑‍🌾', enemies: ['🐛', '🐜', '🕷️'], brute: '🦂', gem: '💛', floor: '#1c1917', floorLine: '#2c2622', fog: '#facc15', accent: '#facc15', bulletColor: '#fef08a', music: 'action' } }] },
@@ -57,8 +57,8 @@
         { name: 'Fruit Crush', emoji: '🍓', cfg: { title: 'Fruit Crush', emoji: '🍓', useEmoji: true, bgTop: '#14532d', bgBottom: '#065f46', accent: '#4ade80' } },
         { name: 'Candy Pop', emoji: '🍬', cfg: { title: 'Candy Pop', emoji: '🍬', gemColors: ['#fb7185', '#fbbf24', '#a3e635', '#38bdf8', '#c084fc', '#f472b6'], bgTop: '#4a044e', bgBottom: '#9d174d', accent: '#f9a8d4', music: 'happy' } }] },
     { id: 'clicker', type: 'game', name: 'Idle Tycoon', emoji: '💰',
-      prompt: 'Idle tycoon: tap the big coin, buy 7 businesses that keep earning while you are away (offline earnings), stronger taps, a golden frenzy and prestige stars.',
-      strong: ['clicker', 'idle', 'tycoon', 'incremental', 'cookie clicker', 'tap to earn'], weak: ['upgrades', 'money', 'earn', 'business', 'empire', 'tap'],
+      prompt: 'Idle tycoon: tap the big coin, buy 7 businesses that keep earning while you are away (offline earnings), x2 milestones at 10/25/50/100 owned, buy x1/x10/max, stronger taps, a golden frenzy and prestige stars.',
+      strong: ['clicker', 'idle', 'tycoon', 'incremental', 'cookie clicker', 'tap to earn', 'shop manager', 'business sim', 'business simulator', 'adventure capitalist'], weak: ['upgrades', 'money', 'earn', 'business', 'empire', 'tap', 'shop', 'store', 'manager', 'sim', 'passive income'],
       themes: [{ name: 'Tycoon', emoji: '💰', cfg: {} },
         { name: 'Cookie Empire', emoji: '🍪', cfg: { title: 'Cookie Empire', emoji: '🍪', tapEmoji: '🍪', currency: '🍪', accent: '#f59e0b', bgTop: '#431407', bgBottom: '#7c2d12', panelColor: '#1c0a03ee',
           earners: [{ name: 'Grandma', icon: '👵', cost: 15, rate: 0.5 }, { name: 'Bakery', icon: '🥐', cost: 120, rate: 4 }, { name: 'Wheat Farm', icon: '🌾', cost: 1100, rate: 30 }, { name: 'Sugar Mine', icon: '⛏️', cost: 12000, rate: 260 }, { name: 'Cookie Factory', icon: '🏭', cost: 130000, rate: 2100 }, { name: 'Cookie Bank', icon: '🏦', cost: 1400000, rate: 16000 }, { name: 'Cookie Rocket', icon: '🚀', cost: 20000000, rate: 140000 }] } },
@@ -74,6 +74,47 @@
             { name: 'Sea Bass', color: '#334155', belly: '#cbd5e1', pattern: 'stripe', min: 1, max: 9, pts: 40, fight: 0.95, rarity: 16 }, { name: 'Grouper', color: '#a16207', belly: '#fde68a', pattern: 'spots', min: 5, max: 40, pts: 70, fight: 1.15, rarity: 10 },
             { name: 'Mahi-Mahi', color: '#22c55e', belly: '#facc15', pattern: 'spots', min: 8, max: 40, pts: 110, fight: 1.3, rarity: 7 }, { name: 'Yellowfin Tuna', color: '#1e3a8a', belly: '#facc15', pattern: 'stripe', min: 20, max: 180, pts: 300, fight: 1.55, rarity: 3 },
             { name: 'Blue Marlin', color: '#1d4ed8', belly: '#e2e8f0', pattern: 'bars', min: 100, max: 600, pts: 900, fight: 1.75, rarity: 0.7 }] } }] },
+    { id: 'hockey', type: 'game', name: 'Rink Rush', emoji: '🏒',
+      prompt: 'Arcade 3-on-3 ice hockey: drag to skate, PASS and SHOOT buttons (tap to pass, swipe up to shoot), one-timers, body checks, smart AI teammates and goalies, 3 periods on a clock, scoreboard and sudden-death overtime.',
+      avoid: ['air hockey', 'table hockey'], strong: ['hockey', 'ice hockey', 'puck', 'nhl', 'rink', 'slapshot', 'slap shot'], weak: ['ice', 'goalie', 'stick', 'skate', 'skating', '3v3', '2v2', 'sports', 'team', 'periods'],
+      themes: [{ name: 'Classic Rink', emoji: '🏒', cfg: {} },
+        { name: 'Zombie Hockey', emoji: '🧟', cfg: { title: 'Zombie Hockey', emoji: '🧟', accent: '#a3e635', arena: '#070b07', ice: '#d9e4dc', iceShade: '#b9c9bd', redLine: '#7f1d1d', blueLine: '#3f6212', homeName: 'HUMANS', homeColor: '#2563eb', awayName: 'ZOMBIES', awayColor: '#4d7c0f', awayTrim: '#d9f99d', awayEmoji: '🧟', music: 'spooky' } },
+        { name: 'Neon Night', emoji: '🌃', cfg: { title: 'Neon Night Hockey', emoji: '🌃', accent: '#f472b6', arena: '#05010f', ice: '#1e1b4b', iceShade: '#2e1065', redLine: '#f472b6', blueLine: '#22d3ee', puckColor: '#f8fafc', homeColor: '#0891b2', homeTrim: '#cffafe', awayColor: '#db2777', awayTrim: '#fce7f3' } }] },
+    { id: 'basketball', type: 'game', name: 'Hoop Rush', emoji: '🏀',
+      prompt: 'Arcade 3-on-3 basketball: drag to move, PASS and SHOOT buttons, dunks up close, 2s and 3s, steals and blocks, a 12-second shot clock, AI teammates, first to 21 or best score after 3 minutes.',
+      strong: ['basketball', 'hoops', 'hoop', 'nba', 'dunk', 'dunks', 'slam dunk', 'streetball', 'b-ball', 'buzzer beater'], weak: ['court', 'three pointer', 'jump shot', 'layup', '3v3', '2v2', 'sports', 'team', 'ball'],
+      themes: [{ name: 'Arena Court', emoji: '🏀', cfg: {} },
+        { name: 'Street Court', emoji: '🏙️', cfg: { title: 'Street Hoops', emoji: '🏙️', accent: '#facc15', arena: '#0c0a09', wood: '#57534e', woodDark: '#44403c', lines: '#facc15', paint: '#292524', homeName: 'NORTH', homeColor: '#0ea5e9', awayName: 'SOUTH', awayColor: '#f97316', music: 'action' } },
+        { name: 'Zoo Hoops', emoji: '🦁', cfg: { title: 'Zoo Hoops', emoji: '🦁', accent: '#22c55e', wood: '#e3b27a', woodDark: '#c98f52', paint: '#166534', homeName: 'BEARS', homeEmoji: '🐻', homeColor: '#92400e', awayName: 'LIONS', awayEmoji: '🦁', awayColor: '#ca8a04', music: 'happy' } }] },
+    { id: 'towerdefense', type: 'game', name: 'Tower Siege', emoji: '🏰',
+      prompt: 'Tower defense: drag towers from the tray onto the grass, 4 tower types (archer, splash cannon, frost slow, chain zapper) with 3 upgrade levels and sell, enemies follow a winding path, waves that grow with a boss every 10th, call waves early for bonus gold.',
+      strong: ['tower defense', 'tower defence', 'td', 'towers', 'turret', 'turrets', 'bloons', 'kingdom rush', 'defend the base', 'defend the castle', 'defend your base'], weak: ['tower', 'defend', 'defense', 'defence', 'path', 'castle', 'enemies', 'waves', 'upgrade', 'strategy'],
+      themes: [{ name: 'Castle Siege', emoji: '🏰', cfg: {} },
+        { name: 'Star Defense', emoji: '🛰️', cfg: { title: 'Star Defense', emoji: '🛰️', accent: '#38bdf8', grass: '#111827', grassAlt: '#162033', pathColor: '#475569', pathEdge: '#94a3b8', trayColor: '#05070d', base: '🛰️', portal: '🌌',
+          towers: [{ name: 'Blaster', icon: '🔫', cost: 50, range: 92, rate: 1.7, dmg: 9, color: '#22d3ee', kind: 'single' }, { name: 'Rocket', icon: '🚀', cost: 80, range: 82, rate: 0.7, dmg: 22, splash: 44, color: '#f97316', kind: 'splash' }, { name: 'Cryo', icon: '🧊', cost: 70, range: 80, rate: 1.2, dmg: 4, slow: 0.5, color: '#93c5fd', kind: 'slow' }, { name: 'Tesla', icon: '⚡', cost: 120, range: 104, rate: 0.9, dmg: 15, chain: 3, color: '#a855f7', kind: 'chain' }],
+          enemies: [{ name: 'Drone', icon: '👾', hp: 28, speed: 50, reward: 5, leak: 1 }, { name: 'Scout', icon: '🛸', hp: 16, speed: 86, reward: 4, leak: 1 }, { name: 'Mech', icon: '🤖', hp: 95, speed: 31, reward: 12, leak: 2 }, { name: 'Overlord', icon: '👽', hp: 650, speed: 25, reward: 90, leak: 10 }] } },
+        { name: 'Garden Guard', emoji: '🌻', cfg: { title: 'Garden Guard', emoji: '🌻', accent: '#facc15', grass: '#65a30d', grassAlt: '#6eb012', pathColor: '#a16207', pathEdge: '#713f12', trayColor: '#1a2e05', base: '🏡', portal: '🕳️', music: 'happy',
+          towers: [{ name: 'Seed Spitter', icon: '🌱', cost: 50, range: 92, rate: 1.7, dmg: 9, color: '#22c55e', kind: 'single' }, { name: 'Melon Lob', icon: '🍉', cost: 80, range: 82, rate: 0.7, dmg: 22, splash: 44, color: '#f43f5e', kind: 'splash' }, { name: 'Ice Mint', icon: '🌿', cost: 70, range: 80, rate: 1.2, dmg: 4, slow: 0.5, color: '#67e8f9', kind: 'slow' }, { name: 'Bee Hive', icon: '🐝', cost: 120, range: 104, rate: 0.9, dmg: 15, chain: 3, color: '#facc15', kind: 'chain' }],
+          enemies: [{ name: 'Snail', icon: '🐌', hp: 28, speed: 50, reward: 5, leak: 1 }, { name: 'Beetle', icon: '🪲', hp: 16, speed: 86, reward: 4, leak: 1 }, { name: 'Tortoise', icon: '🐢', hp: 95, speed: 31, reward: 12, leak: 2 }, { name: 'Wild Boar', icon: '🐗', hp: 650, speed: 25, reward: 90, leak: 10 }] } }] },
+    { id: 'racer', type: 'game', name: 'Turbo Track', emoji: '🏎️',
+      prompt: 'Top-down arcade racer: steer with the stick, auto gas, drift around corners to fill NITRO, boost pads, 3 laps against 3 AI rivals with rubber-banding, a minimap, places and lap times.',
+      strong: ['racing', 'racer', 'race', 'races', 'kart', 'karts', 'go kart', 'go-kart', 'drift', 'drifting', 'micro machines', 'race car', 'racecar', 'grand prix', 'rally'], weak: ['car', 'cars', 'track', 'speed', 'nitro', 'drive', 'driving', 'lap', 'laps', 'circuit', 'turbo'],
+      themes: [{ name: 'Grand Prix', emoji: '🏁', cfg: {} },
+        { name: 'Desert Rally', emoji: '🌵', cfg: { title: 'Desert Rally', emoji: '🌵', accent: '#f59e0b', grass: '#d6a461', grassAlt: '#dcae6e', asphalt: '#6b5e52', curbA: '#ea580c', curbB: '#fef3c7', tree: '🌵', playerColor: '#f59e0b', rivalColors: ['#0ea5e9', '#16a34a', '#e11d48'], rivalNames: ['Sky', 'Cactus', 'Rose'] } },
+        { name: 'Snow Circuit', emoji: '❄️', cfg: { title: 'Snow Circuit', emoji: '❄️', accent: '#3b82f6', grass: '#e2e8f0', grassAlt: '#eef2f7', asphalt: '#475569', curbA: '#2563eb', curbB: '#ffffff', tree: '🌲', playerColor: '#2563eb', rivalColors: ['#dc2626', '#16a34a', '#9333ea'], rivalNames: ['Red', 'Green', 'Purple'], grip: 6, driftGrip: 1.5,
+          track: [[550, 1380], [230, 1340], [150, 1120], [290, 960], [170, 760], [190, 420], [350, 230], [620, 200], [820, 330], [790, 560], [580, 650], [650, 840], [870, 920], [900, 1200], [750, 1360]] } }] },
+    { id: 'cards', type: 'game', name: 'Card Quest', emoji: '🃏',
+      prompt: 'Deckbuilder card battler: draw 5 cards a turn, spend energy to attack, block and cast, drag cards onto enemies or tap them, read enemy intents, weak, vulnerable and strength, pick new cards after every fight, elites every 3rd floor and a dragon boss on floor 10.',
+      strong: ['deckbuilder', 'deck builder', 'deck-builder', 'deckbuilding', 'card battler', 'card battle', 'card game', 'cards', 'slay the spire', 'hearthstone', 'ccg', 'tcg', 'collectible card'], weak: ['card', 'deck', 'spells', 'dungeon', 'turn-based', 'turn based', 'roguelike', 'roguelite', 'mana', 'energy', 'hand', 'rpg', 'battle'],
+      themes: [{ name: 'Dungeon', emoji: '🐉', cfg: {} },
+        { name: 'Space Crew', emoji: '🧑‍🚀', cfg: { title: 'Star Deck', emoji: '🧑‍🚀', hero: '🧑‍🚀', accent: '#22d3ee', bgTop: '#020617', bgBottom: '#1e1b4b', floor: '#0f172a', cardColor: '#1e293b', music: 'arcade',
+          enemies: [{ name: 'Space Germ', icon: '🦠', hp: 16, moves: [{ t: 'attack', n: 5 }, { t: 'attack', n: 3 }, { t: 'block', n: 4 }] }, { name: 'Glitch', icon: '👾', hp: 12, moves: [{ t: 'attack', n: 4 }, { t: 'attack', n: 6 }] }, { name: 'Saucer', icon: '🛸', hp: 20, moves: [{ t: 'debuff', n: 2 }, { t: 'attack', n: 7 }, { t: 'attack', n: 4 }] }, { name: 'Robot', icon: '🤖', hp: 26, moves: [{ t: 'block', n: 6 }, { t: 'attack', n: 9 }, { t: 'buff', n: 2 }] }, { name: 'Void Squid', icon: '🐙', hp: 24, moves: [{ t: 'attack', n: 8 }, { t: 'attack', n: 5 }, { t: 'buff', n: 1 }] }],
+          elites: [{ name: 'Mech Titan', icon: '🦾', hp: 60, moves: [{ t: 'buff', n: 3 }, { t: 'attack', n: 14 }, { t: 'block', n: 10 }, { t: 'attack', n: 9 }] }, { name: 'Overseer', icon: '👽', hp: 52, moves: [{ t: 'debuff', n: 2 }, { t: 'attack', n: 12 }, { t: 'attack', n: 12 }] }],
+          boss: { name: 'Planet Eater', icon: '🪐', hp: 130, moves: [{ t: 'buff', n: 2 }, { t: 'attack', n: 14 }, { t: 'block', n: 12 }, { t: 'attack', n: 9 }, { t: 'debuff', n: 2 }, { t: 'attack', n: 19 }] } } },
+        { name: 'Haunted Manor', emoji: '🎃', cfg: { title: 'Haunted Hand', emoji: '🎃', hero: '🧝', accent: '#a78bfa', bgTop: '#0f0a1e', bgBottom: '#2e1065', floor: '#1e1330', cardColor: '#2a2140', music: 'spooky',
+          enemies: [{ name: 'Ghost', icon: '👻', hp: 16, moves: [{ t: 'attack', n: 5 }, { t: 'attack', n: 3 }, { t: 'block', n: 4 }] }, { name: 'Bat', icon: '🦇', hp: 12, moves: [{ t: 'attack', n: 4 }, { t: 'attack', n: 6 }] }, { name: 'Spider', icon: '🕷️', hp: 20, moves: [{ t: 'debuff', n: 2 }, { t: 'attack', n: 7 }, { t: 'attack', n: 4 }] }, { name: 'Skeleton', icon: '💀', hp: 26, moves: [{ t: 'block', n: 6 }, { t: 'attack', n: 9 }, { t: 'buff', n: 2 }] }, { name: 'Black Cat', icon: '🐈‍⬛', hp: 24, moves: [{ t: 'attack', n: 8 }, { t: 'attack', n: 5 }, { t: 'buff', n: 1 }] }],
+          elites: [{ name: 'Ghoul', icon: '🧟', hp: 60, moves: [{ t: 'buff', n: 3 }, { t: 'attack', n: 14 }, { t: 'block', n: 10 }, { t: 'attack', n: 9 }] }, { name: 'Vampire', icon: '🧛', hp: 52, moves: [{ t: 'debuff', n: 2 }, { t: 'attack', n: 12 }, { t: 'attack', n: 12 }] }],
+          boss: { name: 'Pumpkin King', icon: '🎃', hp: 130, moves: [{ t: 'buff', n: 2 }, { t: 'attack', n: 14 }, { t: 'block', n: 12 }, { t: 'attack', n: 9 }, { t: 'debuff', n: 2 }, { t: 'attack', n: 19 }] } } }] },
     { id: 'habits', type: 'app', name: 'Habit Streaks', emoji: '✅',
       prompt: 'Habit tracker: tap to check off today, streaks, 7-day dots, a completion ring, a stats tab and milestone celebrations.',
       strong: ['habit', 'habits', 'streak', 'streaks', 'routine', 'routines'], weak: ['daily', 'track', 'tracker', 'goals', 'check off'],
@@ -107,6 +148,7 @@
     let best = null, bestScore = 0;
     for (const r of LIST) {
       if (type && r.type !== type) continue;
+      if (r.avoid && r.avoid.some((w) => new RegExp('[\\s-]' + esc(w) + '[\\s-]').test(t))) continue;
       let s = 0;
       for (const w of r.strong) if (new RegExp('[\\s-]' + esc(w) + '[\\s-]').test(t)) s += 3;
       for (const w of r.weak) if (new RegExp('[\\s-]' + esc(w) + '[\\s-]').test(t)) s += 1;

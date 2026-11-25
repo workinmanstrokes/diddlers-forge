@@ -1,6 +1,6 @@
 {
   "name": "diddlers-forge",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "All-in-one AI app & game maker for local Ollama models \u2014 starter recipes, lean edits, plan, build, test, repair, version and ship from your PC or phone.",
   "main": "server.js",
   "scripts": {

@@ -15,7 +15,7 @@
   /* Starters: recipes are finished, tested builds (0 tokens as-is); the rest are written by the AI from the prompt. */
   const TEMPLATES = [
     ...Recipes.list.map((r) => ({ type: r.type, e: r.emoji, t: r.name, p: r.prompt, r: r.id })),
-    { type: 'game', e: '🏒', t: 'Air Hockey', p: 'Air hockey vs an AI: drag your mallet in the bottom half, physics puck with wall bounces, the AI defends and attacks, first to 7 wins (g.win when the player wins, g.over when the AI wins), goal celebration effects.' },
+    { type: 'game', e: '🥅', t: 'Air Hockey', p: 'Air hockey vs an AI: drag your mallet in the bottom half, physics puck with wall bounces, the AI defends and attacks, first to 7 wins (g.win when the player wins, g.over when the AI wins), goal celebration effects.' },
     { type: 'app', e: '🧮', t: 'Job Estimator', p: 'Landscaping job estimator: cubic yards of mulch, gravel or topsoil from length, width and depth (inches), price per yard and delivery fee, labor hours × rate, totals with tax; save quotes with a client name and share as text.' },
     { type: 'app', e: '🎡', t: 'Decision Wheel', p: 'Decision spinner: editable list of options, a big colorful wheel that spins with easing and a ticking sound, winner celebration, saved wheels.' },
     { type: 'app', e: '🔊', t: 'Soundboard', p: 'Soundboard with 12 big colorful pads, each plays a different synthesized sound (WebAudio, no files), record and play back a sequence, haptic feedback.' },

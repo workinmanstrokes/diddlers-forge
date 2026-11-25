@@ -1,0 +1,286 @@
+<!-- app: {"name":"Rink Rush","emoji":"🏒","color":"#38bdf8","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rink Rush</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: team names, colors, emoji, speeds, difficulty
+const CFG = {
+  "title": "Rink Rush",
+  "emoji": "🏒",
+  "help": "Drag to skate. PASS to a teammate, SHOOT at the top net. On defense, SHOOT is a body check. Most goals after 3 periods wins!",
+  "accent": "#38bdf8",
+  "arena": "#0b1220",
+  "ice": "#eef8fd",
+  "iceShade": "#d6ecf7",
+  "redLine": "#ef4444",
+  "blueLine": "#2563eb",
+  "puckColor": "#0f172a",
+  "homeName": "YOU",
+  "homeColor": "#2563eb",
+  "homeTrim": "#ffffff",
+  "homeEmoji": "",
+  "awayName": "CPU",
+  "awayColor": "#dc2626",
+  "awayTrim": "#ffffff",
+  "awayEmoji": "",
+  "music": "action",
+  "periods": 3,
+  "periodSeconds": 60,
+  "skaterSpeed": 150,
+  "aiSpeed": 0.96,
+  "shotPower": 540,
+  "passPower": 390,
+  "puckFriction": 0.6,
+  "goalieSkill": 0.72,
+  "aiAggression": 0.7
+};
+
+// GAME
+const RK = { l: 22, r: 338, t: 76, b: 624, c: 58 }, GT = 126, GB = 574, MOUTH = 28;
+const HOME_POS = [[180, 392], [112, 414], [248, 414]], AWAY_POS = [[180, 308], [112, 286], [248, 286]];
+let sk, goalies, puck, me, goals, period, clock, phase, phaseT, ot, switchT, stick, scratches;
+
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+function walls(o, rad, bounce) {
+  let hit = false; const cx = o.x < RK.l + RK.c ? RK.l + RK.c : o.x > RK.r - RK.c ? RK.r - RK.c : null, cy = o.y < RK.t + RK.c ? RK.t + RK.c : o.y > RK.b - RK.c ? RK.b - RK.c : null;
+  if (cx !== null && cy !== null) {
+    const dx = o.x - cx, dy = o.y - cy, d = Math.hypot(dx, dy) || 1, lim = RK.c - rad;
+    if (d > lim) { const nx = dx / d, ny = dy / d; o.x = cx + nx * lim; o.y = cy + ny * lim; const vn = o.vx * nx + o.vy * ny; if (vn > 0) { o.vx -= (1 + bounce) * vn * nx; o.vy -= (1 + bounce) * vn * ny; hit = vn > 60; } }
+  }
+  if (o.x < RK.l + rad) { o.x = RK.l + rad; if (o.vx < 0) { hit = hit || o.vx < -60; o.vx = -o.vx * bounce; } }
+  if (o.x > RK.r - rad) { o.x = RK.r - rad; if (o.vx > 0) { hit = hit || o.vx > 60; o.vx = -o.vx * bounce; } }
+  if (o.y < RK.t + rad) { o.y = RK.t + rad; if (o.vy < 0) { hit = hit || o.vy < -60; o.vy = -o.vy * bounce; } }
+  if (o.y > RK.b - rad) { o.y = RK.b - rad; if (o.vy > 0) { hit = hit || o.vy > 60; o.vy = -o.vy * bounce; } }
+  return hit;
+}
+function netBlock(o, rad, bounce) {
+  for (const top of [true, false]) {
+    const y0 = top ? GT - 20 : GB, y1 = top ? GT : GB + 20;
+    if (o.x > 180 - MOUTH - 4 - rad && o.x < 180 + MOUTH + 4 + rad && o.y > y0 - rad && o.y < y1 + rad) {
+      const inMouth = Math.abs(o.x - 180) < MOUTH && (top ? o.y > y0 : o.y < y1);
+      if (inMouth && o === puck) continue;
+      const dl = o.x - (180 - MOUTH - 4 - rad), dr = 180 + MOUTH + 4 + rad - o.x, dt = o.y - (y0 - rad), db = y1 + rad - o.y, m = Math.min(dl, dr, dt, db);
+      if (m === dl) { o.x -= dl; o.vx = -Math.abs(o.vx) * bounce; } else if (m === dr) { o.x += dr; o.vx = Math.abs(o.vx) * bounce; }
+      else if (m === dt) { o.y -= dt; o.vy = -Math.abs(o.vy) * bounce; } else { o.y += db; o.vy = Math.abs(o.vy) * bounce; }
+    }
+  }
+}
+
+function faceoff(g) {
+  sk.forEach((p) => { const pos = (p.team ? AWAY_POS : HOME_POS)[p.i]; p.x = pos[0]; p.y = pos[1]; p.vx = p.vy = 0; p.stun = 0; p.dash = 0; p.face = p.team ? Math.PI / 2 : -Math.PI / 2; });
+  goalies.forEach((k) => { k.x = 180; k.hold = 0; });
+  Object.assign(puck, { x: 180, y: 350, vx: 0, vy: 0, owner: null, noPick: null, pass: null, shot: null, trail: [] });
+  me = sk[0]; phase = 'faceoff'; phaseT = 0.9;
+}
+function release(p, vx, vy) { puck.owner = null; puck.x = p.x + Math.cos(p.face) * 15; puck.y = p.y + Math.sin(p.face) * 15; puck.vx = vx; puck.vy = vy; puck.noPick = p; puck.noPickT = 0.22; puck.lastTeam = p.team; }
+function pass(g, p) {
+  const mates = sk.filter((q) => q.team === p.team && q !== p); if (!mates.length) return;
+  const fwd = p.team === 0 ? -1 : 1;
+  const score = (q) => Math.min(...sk.filter((o) => o.team !== p.team).map((o) => dist(o, q))) + (q.y - p.y) * fwd * 0.6 - dist(q, p) * 0.15;
+  const to = mates.reduce((a, b) => (score(b) > score(a) ? b : a));
+  const tx = to.x + to.vx * 0.3, ty = to.y + to.vy * 0.3, a = Math.atan2(ty - p.y, tx - p.x);
+  p.face = a; release(p, Math.cos(a) * CFG.passPower, Math.sin(a) * CFG.passPower); puck.pass = { from: p, to, t: g.t }; g.sfx('click');
+  if (p.team === 0) { me = to; switchT = g.t + 0.5; }
+}
+function shoot(g, p, aimX) {
+  const ty = p.team === 0 ? GT - 10 : GB + 10, a = Math.atan2(ty - p.y, aimX - p.x), one = p.got && g.t - p.got < 0.5;
+  const sp = CFG.shotPower * (one ? 1.2 : 1) * g.rand(0.92, 1.06);
+  p.face = a; release(p, Math.cos(a) * sp, Math.sin(a) * sp); puck.shot = { team: p.team, t: g.t };
+  g.sfx('shoot'); g.shake(one ? 6 : 3); if (one && p.team === 0) g.floatText(p.x, p.y - 26, 'ONE-TIMER!', '#fde047', 16);
+}
+function steal(g, from, by) {
+  release(from, (by.x - from.x) * 3 + g.rand(-60, 60), (by.y - from.y) * 3 + g.rand(-60, 60)); puck.noPick = from; puck.noPickT = 0.5;
+  from.stun = 0.7; g.particles(from.x, from.y, { color: ['#fff', CFG.accent], n: 10, speed: 140 }); g.sfx('hit'); g.shake(5);
+  if (by.team === 0) { g.addScore(20, by.x, by.y - 24); }
+}
+function scored(g, team) {
+  goals[team]++; phase = 'goal'; phaseT = 2; puck.vx *= 0.2; puck.vy *= 0.2;
+  if (team === 0) { g.addScore(100, 180, GT + 30); g.banner('GOAL!', CFG.homeName + ' ' + goals[0] + ' – ' + goals[1] + ' ' + CFG.awayName); g.sfx('win'); g.flash(CFG.homeColor, 0.35); g.particles(180, GT, { color: [CFG.homeColor, '#fff', '#fde047'], n: 60, speed: 300 }); }
+  else { g.banner(CFG.awayName + ' scores', goals[0] + ' – ' + goals[1]); g.sfx('lose'); g.shake(8); g.particles(180, GB, { color: [CFG.awayColor, '#fff'], n: 40, speed: 240 }); }
+  if (ot) { phaseT = 2.2; g.after(2, () => end(g)); }
+}
+function end(g) {
+  const a = goals[0], b = goals[1];
+  if (a > b) { g.addScore(500); GAME.winText = 'You win ' + a + '–' + b + '!'; g.win(); } else { GAME.overText = 'Lost ' + a + '–' + b; g.over(); }
+}
+function steer(p, tx, ty, sp, dt) {
+  const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy) || 1, s = sp * Math.min(1, d / 30);
+  p.vx += (dx / d * s - p.vx) * Math.min(1, dt * 5); p.vy += (dy / d * s - p.vy) * Math.min(1, dt * 5);
+}
+function ai(g, p, dt) {
+  const T = p.team, up = T === 0, ownY = up ? GB : GT, goalY = up ? GT : GB, sp = CFG.skaterSpeed * (T === 1 ? CFG.aiSpeed : 0.95) * (puck.owner === p ? 0.9 : 1);
+  const c = puck.owner, mates = sk.filter((q) => q.team === T), opps = sk.filter((q) => q.team !== T);
+  if (c === p) {
+    let tx = 180 + Math.sin(g.t * 1.2 + p.i * 2) * 70; const ty = goalY + (up ? 60 : -60);
+    const near = opps.reduce((a, b) => (dist(b, p) < dist(a, p) ? b : a));
+    if (dist(near, p) < 60) tx += p.x > near.x ? 80 : -80;
+    steer(p, tx, ty, sp, dt);
+    const dy = Math.abs(p.y - goalY);
+    if (dy < 190 && Math.abs(p.x - 180) < 120 && g.chance(dt * (dy < 110 ? 3 : 1.2))) shoot(g, p, 180 + g.rand(-MOUTH + 4, MOUTH - 4));
+    else if (dist(near, p) < 36 && g.chance(dt * 1.8)) pass(g, p);
+    return;
+  }
+  if (c && c.team === T) { const side = p.i === 0 ? 0 : p.i === 1 ? -1 : 1; steer(p, g.clamp(c.x + side * 95 + (side ? 0 : (c.x < 180 ? 70 : -70)), 50, 310), g.clamp(c.y + (up ? -80 : 80), RK.t + 40, RK.b - 40), sp, dt); return; }
+  const rank = mates.filter((q) => q !== me || T === 1).sort((a, b) => dist(a, puck) - dist(b, puck)).indexOf(p);
+  if (!c || rank === 0) {
+    steer(p, puck.x + puck.vx * 0.15, puck.y + puck.vy * 0.15, sp * (c ? 1.05 : 1), dt);
+    if (c && dist(p, c) < 34 && c.stun <= 0 && g.chance(dt * CFG.aiAggression * (T === 1 ? 1.4 : 1))) steal(g, c, p);
+    return;
+  }
+  if (rank === 1) { steer(p, 180 + (puck.x - 180) * 0.4, ownY + (up ? -95 : 95), sp, dt); return; }
+  const mark = opps.filter((o) => o !== c).sort((a, b) => Math.abs(a.y - ownY) - Math.abs(b.y - ownY))[0] || c;
+  steer(p, mark.x + (180 - mark.x) * 0.2, mark.y + (up ? 26 : -26), sp, dt);
+}
+
+const GAME = {
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.arena, music: CFG.music, overEmoji: '🥅', winText: 'You win!',
+  init(g) {
+    sk = []; for (let T = 0; T < 2; T++) for (let i = 0; i < 3; i++) sk.push({ team: T, i, x: 0, y: 0, vx: 0, vy: 0, r: 13, face: 0, stun: 0, dash: 0, cd: 0, got: 0 });
+    goalies = [{ team: 0, x: 180, y: GB - 12, hold: 0 }, { team: 1, x: 180, y: GT + 12, hold: 0 }];
+    puck = { trail: [] }; goals = [0, 0]; period = 1; clock = CFG.periodSeconds; ot = false; switchT = 0; stick = null;
+    if (!scratches) { scratches = []; for (let k = 0; k < 40; k++) scratches.push([g.rand(40, 320), g.rand(100, 600), g.rand(-1, 1), g.rand(10, 30)]); }
+    if (!g.data.btn) { g.data.btn = 1; g.buttons([{ id: 'shoot', label: 'SHOOT', icon: '🏒', key: ['z', 'Enter', 'k'], color: CFG.awayColor }, { id: 'pass', label: 'PASS', icon: '↗️', key: ['x', ' ', 'j'], color: CFG.homeColor }]); }
+    faceoff(g);
+  },
+  update(g, dt) {
+    const inp = g.input;
+    if (inp.pressed) stick = { x: inp.x, y: inp.y }; if (!inp.down) stick = null;
+    if (phase === 'faceoff') { phaseT -= dt; if (phaseT <= 0) { phase = 'play'; puck.vx = g.rand(-30, 30); g.sfx('tick'); } }
+    if (phase === 'goal' || phase === 'break') { phaseT -= dt; if (phaseT <= 0 && !(ot && phase === 'goal')) faceoff(g); }
+    if (phase === 'play' && !ot) {
+      clock -= dt;
+      if (clock <= 0) {
+        clock = 0;
+        if (period < CFG.periods) { period++; clock = CFG.periodSeconds; phase = 'break'; phaseT = 1.8; g.banner('End of period ' + (period - 1), goals[0] + ' – ' + goals[1]); g.sfx('power'); }
+        else if (goals[0] === goals[1]) { ot = true; phase = 'break'; phaseT = 2; g.banner('OVERTIME', 'Next goal wins!'); g.sfx('power'); }
+        else { phase = 'done'; end(g); return; }
+      }
+    }
+    const live = phase === 'play';
+
+    if (live) {
+      if (puck.owner && puck.owner.team === 0) me = puck.owner;
+      else if (g.t > switchT) { const best = sk.filter((q) => q.team === 0).reduce((a, b) => (dist(b, puck) < dist(a, puck) ? b : a)); if (best !== me && dist(best, puck) + 25 < dist(me, puck)) { me = best; switchT = g.t + 0.35; } }
+    }
+    for (const p of sk) {
+      p.stun -= dt; p.dash -= dt; p.cd -= dt;
+      if (p.stun > 0 || !live) { p.vx *= Math.pow(0.1, dt); p.vy *= Math.pow(0.1, dt); }
+      else if (p === me) {
+        const ax = inp.axis.x, ay = inp.axis.y, sp = CFG.skaterSpeed * (puck.owner === p ? 0.95 : 1.05);
+        if (p.dash <= 0) { p.vx += (ax * sp - p.vx) * Math.min(1, dt * 6); p.vy += (ay * sp - p.vy) * Math.min(1, dt * 6); }
+        if (ax || ay) p.face = Math.atan2(ay, ax);
+        const passIt = inp.buttonPressed('pass') || inp.tap, shootIt = inp.buttonPressed('shoot') || inp.swipe === 'up';
+        if (puck.owner === p) {
+          if (shootIt) shoot(g, p, 180 + (Math.abs(ax) > 0.2 ? ax * (MOUTH - 4) : g.rand(-14, 14)));
+          else if (passIt) pass(g, p);
+        } else if (shootIt && p.cd <= 0) {
+          const a = ax || ay ? Math.atan2(ay, ax) : Math.atan2(puck.y - p.y, puck.x - p.x);
+          p.vx = Math.cos(a) * CFG.skaterSpeed * 2.3; p.vy = Math.sin(a) * CFG.skaterSpeed * 2.3; p.dash = 0.3; p.cd = 0.9; p.face = a; g.sfx('jump');
+        } else if (inp.buttonPressed('pass')) { const o = sk.filter((q) => q.team === 0 && q !== me).reduce((a, b) => (dist(b, puck) < dist(a, puck) ? b : a)); me = o; switchT = g.t + 0.6; g.sfx('tick'); }
+      } else ai(g, p, dt);
+      if (p.stun <= 0 && live && p !== me && Math.hypot(p.vx, p.vy) > 20) p.face = Math.atan2(p.vy, p.vx);
+      p.x += p.vx * dt; p.y += p.vy * dt; walls(p, p.r, 0.3); netBlock(p, p.r, 0.2);
+    }
+    for (let i = 0; i < sk.length; i++) for (let j = i + 1; j < sk.length; j++) {
+      const a = sk[i], b = sk[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, o = a.r + b.r - d;
+      if (o > 0) {
+        a.x -= dx / d * o / 2; a.y -= dy / d * o / 2; b.x += dx / d * o / 2; b.y += dy / d * o / 2;
+        if (live && a.team !== b.team) for (const [h, v] of [[a, b], [b, a]]) if (h.dash > 0 && puck.owner === v && v.stun <= 0) { steal(g, v, h); g.floatText(v.x, v.y - 24, 'CHECK!', '#fff', 18); }
+      }
+    }
+
+    for (const k of goalies) {
+      const sp = 130 * CFG.goalieSkill, lead = Math.abs(puck.vy) > 200 ? (k.y - puck.y) / puck.vy * puck.vx : 0;
+      const tx = g.clamp(puck.x + lead * 0.8, 180 - MOUTH + 8, 180 + MOUTH - 8);
+      k.x += g.clamp(tx - k.x, -sp * dt, sp * dt);
+      if (k.hold > 0) { k.hold -= dt; puck.x = k.x; puck.y = k.y + (k.team ? 14 : -14); puck.vx = puck.vy = 0; if (k.hold <= 0) { const mate = sk.filter((q) => q.team === k.team).sort((a, b) => dist(a, k) - dist(b, k))[0]; const a = Math.atan2(mate.y - puck.y, mate.x - puck.x); puck.vx = Math.cos(a) * CFG.passPower; puck.vy = Math.sin(a) * CFG.passPower; puck.noPick = null; puck.lastTeam = k.team; } }
+    }
+
+    const P = puck, py = P.y;
+    if (P.owner) {
+      const o = P.owner; if (o.stun > 0) P.owner = null;
+      else { P.x = o.x + Math.cos(o.face) * 15; P.y = o.y + Math.sin(o.face) * 15; P.vx = o.vx; P.vy = o.vy; }
+    }
+    if (!P.owner && !goalies.some((k) => k.hold > 0)) {
+      const f = Math.exp(-CFG.puckFriction * dt); P.vx *= f; P.vy *= f; P.x += P.vx * dt; P.y += P.vy * dt;
+      if (walls(P, 5, 0.75)) g.sfx('tick');
+      P.noPickT -= dt; if (P.noPickT <= 0) P.noPick = null;
+      if (live) {
+        for (const k of goalies) {
+          const d = dist(P, k);
+          if (d < 22) {
+            const nx = (P.x - k.x) / (d || 1), ny = (P.y - k.y) / (d || 1), vn = P.vx * nx + P.vy * ny, speed = Math.hypot(P.vx, P.vy);
+            P.x = k.x + nx * 22; P.y = k.y + ny * 22;
+            if (speed < 140) { k.hold = 0.7; P.owner = null; if (P.shot && P.shot.team === 0) g.floatText(k.x, k.y + 30, 'SAVE', '#fff', 16); P.shot = null; }
+            else if (vn < 0) { P.vx -= 1.6 * vn * nx; P.vy -= 1.6 * vn * ny; P.vx += g.rand(-120, 120); g.sfx('hit'); g.particles(P.x, P.y, { color: '#fff', n: 6, speed: 100 }); if (P.shot && P.shot.team === 0) g.floatText(k.x, k.y + (k.team ? 34 : -34), 'SAVE!', '#fff', 16); P.shot = null; }
+          }
+        }
+        if (py >= GT && P.y < GT && Math.abs(P.x - 180) < MOUTH) { scored(g, 0); }
+        else if (py <= GB && P.y > GB && Math.abs(P.x - 180) < MOUTH) { scored(g, 1); }
+        else netBlock(P, 5, 0.5);
+        if (phase === 'play') for (const p of sk) {
+          if (p === P.noPick || p.stun > 0 || dist(p, P) > p.r + 8) continue;
+          const sp = Math.hypot(P.vx, P.vy);
+          if (sp > 470 && p.team === P.lastTeam) continue;
+          if (sp > 470 && g.chance(0.55)) { P.vx *= -0.4; P.vy *= -0.4; g.sfx('hit'); continue; }
+          if (P.pass && P.pass.to.team === p.team && p !== P.pass.from && p.team === 0) g.addScore(5, p.x, p.y - 22);
+          P.owner = p; P.pass = null; P.shot = null; p.got = g.t; g.sfx('tick'); break;
+        }
+      } else netBlock(P, 5, 0.5);
+    }
+    if (P.shot && P.shot.team === 0 && Math.abs(P.vy) > 100 && P.y < GT + 30 && !P.shot.counted) { P.shot.counted = true; g.addScore(10); }
+    P.trail.push({ x: P.x, y: P.y }); if (P.trail.length > 8) P.trail.shift();
+  },
+  draw(g, ctx) {
+    g.clear(CFG.arena);
+    if (!sk) return;
+    const rr = (x, y, w, h, r) => { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); };
+    const ice = g.grad(0, RK.t, 0, RK.b, [CFG.ice, CFG.iceShade, CFG.ice]);
+    rr(RK.l, RK.t, RK.r - RK.l, RK.b - RK.t, RK.c); ctx.fillStyle = ice; ctx.fill();
+    ctx.save(); rr(RK.l, RK.t, RK.r - RK.l, RK.b - RK.t, RK.c); ctx.clip();
+    ctx.strokeStyle = 'rgba(120,160,190,.18)'; ctx.lineWidth = 1; for (const s of scratches) { ctx.beginPath(); ctx.moveTo(s[0], s[1]); ctx.lineTo(s[0] + s[3], s[1] + s[2] * 8); ctx.stroke(); }
+    g.rect(RK.l, 348, RK.r - RK.l, 5, CFG.redLine); g.ring(180, 350, 42, CFG.blueLine, 2.5); g.circle(180, 350, 4, CFG.blueLine);
+    for (const y of [262, 438]) g.rect(RK.l, y - 3, RK.r - RK.l, 6, CFG.blueLine);
+    for (const y of [GT, GB]) g.rect(RK.l, y - 1, RK.r - RK.l, 2, CFG.redLine);
+    for (const [x, y] of [[106, 190], [254, 190], [106, 510], [254, 510]]) { g.ring(x, y, 30, CFG.redLine, 2); g.circle(x, y, 4, CFG.redLine); }
+    for (const [y, dir] of [[GT, 1], [GB, -1]]) { ctx.fillStyle = 'rgba(96,165,250,.35)'; ctx.beginPath(); ctx.arc(180, y, 32, dir > 0 ? 0 : Math.PI, dir > 0 ? Math.PI : Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+    for (const [y0, top] of [[GT - 20, true], [GB, false]]) {
+      g.rect(180 - MOUTH - 4, y0, (MOUTH + 4) * 2, 20, 'rgba(255,255,255,.75)', 3);
+      ctx.strokeStyle = 'rgba(100,116,139,.6)'; ctx.lineWidth = 1; ctx.beginPath();
+      for (let x = 180 - MOUTH; x <= 180 + MOUTH; x += 7) { ctx.moveTo(x, y0); ctx.lineTo(x, y0 + 20); } for (let y = y0 + 5; y < y0 + 20; y += 5) { ctx.moveTo(180 - MOUTH - 4, y); ctx.lineTo(180 + MOUTH + 4, y); } ctx.stroke();
+      ctx.strokeStyle = CFG.redLine; ctx.lineWidth = 3; ctx.beginPath(); if (top) { ctx.moveTo(180 - MOUTH - 2, GT); ctx.lineTo(180 - MOUTH - 2, GT - 18); ctx.lineTo(180 + MOUTH + 2, GT - 18); ctx.lineTo(180 + MOUTH + 2, GT); } else { ctx.moveTo(180 - MOUTH - 2, GB); ctx.lineTo(180 - MOUTH - 2, GB + 18); ctx.lineTo(180 + MOUTH + 2, GB + 18); ctx.lineTo(180 + MOUTH + 2, GB); } ctx.stroke();
+    }
+    rr(RK.l, RK.t, RK.r - RK.l, RK.b - RK.t, RK.c); ctx.lineWidth = 6; ctx.strokeStyle = '#f8fafc'; ctx.stroke(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.stroke();
+    const P = puck;
+    for (let i = 0; i < P.trail.length; i++) g.circle(P.trail[i].x, P.trail[i].y, 1 + i * 0.4, 'rgba(15,23,42,' + (i * 0.03).toFixed(2) + ')');
+    const bodies = [...sk.map((p) => ({ p, y: p.y })), ...goalies.map((k) => ({ k, y: k.y }))].sort((a, b) => a.y - b.y);
+    for (const b of bodies) {
+      if (b.k) { const k = b.k, col = k.team ? CFG.awayColor : CFG.homeColor; g.circle(k.x, k.y + 5, 14, 'rgba(0,0,0,.12)'); g.rect(k.x - 19, k.y - 6, 38, 12, col, 5); g.circle(k.x, k.y, 11, col); g.circle(k.x, k.y - 1, 6.5, '#e2e8f0'); g.ring(k.x, k.y - 1, 6.5, '#334155', 1.5); continue; }
+      const p = b.p, col = p.team ? CFG.awayColor : CFG.homeColor, trim = p.team ? CFG.awayTrim : CFG.homeTrim, emo = p.team ? CFG.awayEmoji : CFG.homeEmoji;
+      g.circle(p.x, p.y + 6, 13, 'rgba(0,0,0,.18)');
+      const sx = p.x + Math.cos(p.face + 0.5) * 8, sy = p.y + Math.sin(p.face + 0.5) * 8;
+      g.line(sx, sy, p.x + Math.cos(p.face) * 19, p.y + Math.sin(p.face) * 19, '#7c4a1e', 3); g.line(p.x + Math.cos(p.face) * 19, p.y + Math.sin(p.face) * 19, p.x + Math.cos(p.face - 0.6) * 21, p.y + Math.sin(p.face - 0.6) * 21, '#1f2937', 4);
+      if (p === me && g.state === 'play') { g.ring(p.x, p.y, 19 + Math.sin(g.t * 8) * 1.5, CFG.accent, 3); ctx.fillStyle = CFG.accent; ctx.beginPath(); ctx.moveTo(p.x - 6, p.y - 30); ctx.lineTo(p.x + 6, p.y - 30); ctx.lineTo(p.x, p.y - 23); ctx.fill(); }
+      g.circle(p.x, p.y, p.r, p.stun > 0 ? '#94a3b8' : col); g.ring(p.x, p.y, p.r, trim, 2);
+      if (emo) g.emoji(emo, p.x, p.y - 2, 24); else g.text(String(p.i + 1 + p.team * 3), p.x, p.y + 1, { size: 12, weight: 900, color: trim });
+    }
+    g.circle(P.x, P.y, 5, CFG.puckColor); g.circle(P.x - 1.5, P.y - 1.5, 1.6, 'rgba(255,255,255,.4)');
+    const mm = Math.floor(clock / 60), ss = String(Math.floor(clock % 60)).padStart(2, '0');
+    g.rect(96, 24, 168, 44, 'rgba(2,6,23,.88)', 12); g.rect(96, 24, 6, 44, CFG.homeColor, 3); g.rect(258, 24, 6, 44, CFG.awayColor, 3);
+    g.text(CFG.homeName + '  ' + goals[0], 142, 39, { size: 15, weight: 900, color: '#fff' }); g.text(goals[1] + '  ' + CFG.awayName, 218, 39, { size: 15, weight: 900, color: '#fff' });
+    g.text(ot ? 'OVERTIME' : 'P' + period + '  ·  ' + mm + ':' + ss, 180, 58, { size: 11, weight: 800, color: clock < 10 && !ot ? '#fca5a5' : '#ffffffcc' });
+    if (stick && g.state === 'play') { g.ring(stick.x, stick.y, 34, 'rgba(15,23,42,.35)', 2); g.circle(stick.x + g.clamp(g.input.x - stick.x, -34, 34), stick.y + g.clamp(g.input.y - stick.y, -34, 34), 13, 'rgba(15,23,42,.3)'); }
+    if (phase === 'faceoff' && g.state === 'play') g.text('Faceoff!', 180, 300, { size: 22, weight: 900, color: CFG.puckColor });
+  },
+};
+Kit.game(GAME);
+</script>
+</body>
+</html>

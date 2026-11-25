@@ -6,7 +6,7 @@ Describe an idea. The **Architect** plans it and asks you questions, **you appro
 No cloud, no API keys, no `npm install`. It's one Node server with zero dependencies.
 
 ### New in 3.0: same quality, a fraction of the tokens
-- **⚡ 14 starter recipes:** finished, tested games and apps (space shooter, zombie survival, endless runner, flappy, fruit catcher, brick breaker, snake, match-3, idle tycoon, a Michigan fishing game, habit tracker, budget, interval timer and notes). Tap one to build it for **0 tokens**. If your idea matches one, the AI only re-themes and adjusts it, which takes about **1k output tokens instead of 3–7k**.
+- **⚡ 19 starter recipes:** finished, tested games and apps (space shooter, bullet-heaven zombie survival, endless runner, flappy, fruit catcher, brick breaker, snake, match-3, idle tycoon, a Michigan fishing game, 3-on-3 hockey, 3-on-3 basketball, tower defense, top-down racer, deckbuilder card battler, habit tracker, budget, interval timer and notes). Tap one to build it for **0 tokens**. If your idea matches one, the AI only re-themes and adjusts it, which takes about **1k output tokens instead of 3–7k**.
 - **🎛 Tuner:** every starter keeps its colors, emoji, names, speeds and difficulty in one tuning block. Change them with sliders and color pickers, try 3 one-tap themes or 🎲 random colors, and watch a live preview. **No AI, 0 tokens.**
 - **Lean edits:** requests like “make it faster” or “blue theme” send only the tuning block (~300 tokens) instead of the whole file.
 - **Smarter cache use:** every role now shares one system prompt and the files always come first, so Ollama re-uses what it already read. The improvement step after a Critic review re-reads about 4% of its prompt instead of all of it.
@@ -95,15 +95,20 @@ Live CPU and RAM, which model is loaded (CPU vs GPU share, context, unload timer
 | Starter | What you get | One-tap themes |
 |---|---|---|
 | 🚀 Space Blaster | Drag to fly, auto-fire, formation waves, power-ups, upgrade picks, bosses | Deep Space · Sky Ace · Ocean Defender |
-| 🧟 Zombie Survival | Virtual stick, auto-aim, 20 s waves, gems, 8 upgrades incl. orbit blades, brutes | Zombie Night · Monster Mash · Bug Blaster |
+| 🧟 Zombie Survival | Bullet heaven: virtual stick, auto-aim, XP gems with a level bar, level-up picks mid-fight (10 powers incl. orbit blades and nova), 20 s waves, brutes | Zombie Night · Monster Mash · Bug Blaster |
 | 🏃 Neon Runner | Tap / double jump, obstacles, bats, pits, coin streaks, synthwave city | Neon City · Desert Dash · Ice Run |
 | 🐤 Sky Hopper | Flap through pipes, 3 hearts, bouncy ground, bonus stars, streak points | Sunny Day · Night Flight · Rocket Hop |
 | 🧺 Fruit Frenzy | Catch fruit, dodge bombs, combos, star frenzy | Fruit Frenzy · Candy Rain · Treasure Dive |
 | 🧱 Brick Smash | Paddle, 5 cycling layouts, tough bricks, multi-ball / wide / slow / life | Neon · Sugar Smash · Retro Green |
 | 🐍 Snake Arena | Smooth snake, 3 orbs, golden orbs, wrap-around, rocks as you grow | Jungle · Neon Viper · Garden Worm |
 | 💎 Gem Match | Swipe match-3, cascades, line and rainbow gems, levels with moves and targets | Gem Vault · Fruit Crush · Candy Pop |
-| 💰 Idle Tycoon | Tap coin, 7 businesses, offline earnings, frenzy, prestige stars | Tycoon · Cookie Empire · Space Miner |
+| 💰 Idle Tycoon | Tap coin, 7 businesses, x2 milestones at 10/25/50/100… owned, buy x1 / x10 / max, offline earnings, frenzy, prestige stars | Tycoon · Cookie Empire · Space Miner |
 | 🎣 Lunker Rush | Charge cast, hook on the dip, tension-meter reeling, 9 Michigan species, weights, species log, sunset timer | Morning Lake · Ice Shanty · Deep Sea |
+| 🏒 Rink Rush | 3-on-3 hockey: puck physics off boards and nets, PASS / SHOOT buttons, one-timers, body checks, AI teammates and goalies, 3 periods, OT | Classic Rink · Zombie Hockey · Neon Night |
+| 🏀 Hoop Rush | 3-on-3 basketball: dribble, pass, 2s and 3s, dunks, steals, blocks, 12 s shot clock, AI teammates, first to 21 | Arena Court · Street Court · Zoo Hoops |
+| 🏰 Tower Siege | Drag towers onto a grid, 4 towers (archer, splash, frost, chain) with 3 upgrade levels and sell, path waypoints, growing waves, bosses, early-wave gold | Castle Siege · Star Defense · Garden Guard |
+| 🏎️ Turbo Track | Top-down racer: stick steering, drifting fills NITRO, boost pads, 3 laps vs 3 AI racing lines, minimap, places | Grand Prix · Desert Rally · Snow Circuit |
+| 🃏 Card Quest | Deckbuilder: draw / hand / discard piles, energy, drag or tap cards, enemy intents, block, strength, weak, vulnerable, card rewards, elites, a boss on floor 10 | Dungeon · Space Crew · Haunted Manor |
 | ✅ Habit Streaks | Check-offs, streaks, 7-day dots, completion ring, stats | Fresh Green · Fitness · Calm (light) |
 | 💸 Budget Buddy | Quick add, money left this month, history by day, category bars | Emerald · Job Costs · Light |
 | ⏱️ Interval Timer | Work/rest/rounds, ring countdown, beeps + vibration, presets | Workout · Fight Timer · Focus |
@@ -148,6 +153,7 @@ On a 16 GB RAM PC with integrated graphics, expect a few to ~10 tokens/second fo
 | M10 Remote access | ✅ Phone over Wi-Fi with an optional PIN (local network only) |
 | Extras | Autopilot, Critic reviews, terminal, library bundling, hardware monitor, dev/staging/prod, Windows launcher |
 | 3.0 | Starter recipes, Tuner, lean edits, shared prompt cache, kit v2 (music, backdrops, choice cards, banners) |
+| 3.1 | 5 new genre starters (hockey, basketball, tower defense, racer, deckbuilder), XP level-ups in Zombie Survival, milestones and buy-max in Idle Tycoon, kit on-screen action buttons |
 
 ---
 
@@ -167,7 +173,7 @@ server.js              zero-dependency server (API, Ollama proxy, storage, termi
 public/                the studio (PWA): index.html, app.js, engine.js, tester.js, styles.css
 public/shared/         build + test-harness code shared by browser and server
 public/kit/            game.js, app.js, ui.css — what generated apps are built on
-public/recipes/        14 starter recipes + index.js (keywords, themes, CFG helpers)
+public/recipes/        19 starter recipes + index.js (keywords, themes, CFG helpers)
 data/                  your projects, versions (deduplicated), workspace, logs, settings (not in git)
 ```
 

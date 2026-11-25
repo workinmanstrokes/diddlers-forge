@@ -22,7 +22,8 @@ Kit.game({title,emoji,help:'one-line how to play',color:'#accent',bg:'#backgroun
 • Draw: g.clear(color), g.rect(x,y,w,h,color,radius), g.circle(x,y,r,color), g.ring(x,y,r,color,w), g.line(x1,y1,x2,y2,color,w), g.text(s,x,y,{size,color,align,weight,glow}), g.emoji('🚀',x,y,size,rot), g.glow(color,blur)/g.noGlow(), g.grad(x0,y0,x1,y1,[colors]); ctx is a normal 2D context.
 • Math: g.rand(a,b), g.randi(a,b), g.pick(arr), g.chance(p), g.clamp(v,a,b), g.lerp, g.dist(a,b), g.angle(a,b), g.hitCircle(a,b){x,y,r}, g.hitRect(a,b){x,y,w,h}, g.hitCircleRect(c,r), g.ease.out(t). g.save(k,v)/g.load(k,def) for progress.
 • Free polish: config music:'arcade|action|chill|happy|spooky' (procedural loop). Call g.backdrop('stars|snow|bubbles|bokeh|grid|clouds|waves',{colors:[top,bottom],tint,speed,alpha}) first in draw for an animated background.
-• g.banner('WAVE 2','subtitle') big announcement. g.choose([{icon,title,desc}],(i,opt)=>{},{title}) pauses for an upgrade pick. formatScore:true shows 1.2M style numbers; g.fmt(n).`;
+• g.banner('WAVE 2','subtitle') big announcement. g.choose([{icon,title,desc}],(i,opt)=>{},{title}) pauses for an upgrade pick. formatScore:true shows 1.2M style numbers; g.fmt(n).
+• On-screen action buttons: g.buttons([{id:'shoot',label:'SHOOT',icon:'🏒',key:'z'}]) once in init, then g.input.button('shoot') (held) / g.input.buttonPressed('shoot') (this frame). Phone thumbs + keyboard keys, hidden on menus.`;
 
   const APP_KIT = `APP KIT — add <link rel="stylesheet" href="kit/ui.css"> and <script src="kit/app.js"></script> in <head>, then:
 • Layout: <body><div class="app"><header class="topbar"><div class="title">…</div></header><main class="content">…</main><nav class="tabbar">…</nav></div>

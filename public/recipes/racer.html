@@ -1,0 +1,178 @@
+<!-- app: {"name":"Turbo Track","emoji":"🏎️","color":"#ef4444","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Turbo Track</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: names, colors, track, speeds, difficulty
+const CFG = {
+  "title": "Turbo Track",
+  "emoji": "🏎️",
+  "help": "Push the stick the way you want to drive. Turn hard to drift, drifting fills NITRO. Win the 3-lap race!",
+  "accent": "#ef4444",
+  "grass": "#3f8f3a",
+  "grassAlt": "#469c40",
+  "asphalt": "#3f3f46",
+  "curbA": "#ef4444",
+  "curbB": "#f8fafc",
+  "tree": "🌳",
+  "music": "action",
+  "playerColor": "#ef4444",
+  "rivalColors": ["#3b82f6", "#facc15", "#a855f7"],
+  "rivalNames": ["Blue", "Yellow", "Purple"],
+  "laps": 3,
+  "trackWidth": 112,
+  "maxSpeed": 330,
+  "accel": 240,
+  "turnRate": 3.1,
+  "grip": 7,
+  "driftGrip": 1.8,
+  "aiSkill": 0.87,
+  "track": [[500, 1380], [820, 1340], [900, 1120], [760, 960], [880, 760], [860, 420], [700, 230], [430, 200], [230, 330], [260, 560], [470, 650], [400, 840], [180, 920], [150, 1200], [300, 1360]]
+};
+
+// GAME
+const PLACES = ['1st', '2nd', '3rd', '4th'];
+let D, N, path, cars, P, cam, skids, smoke, trees, phase, phaseT, pads, finished, lastPlace, mm;
+
+function buildTrack(g) {
+  const T = CFG.track, n = T.length; D = [];
+  for (let i = 0; i < n; i++) {
+    const p0 = T[(i - 1 + n) % n], p1 = T[i], p2 = T[(i + 1) % n], p3 = T[(i + 2) % n], L = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), steps = Math.ceil(L / 9);
+    for (let k = 0; k < steps; k++) { const t = k / steps, t2 = t * t, t3 = t2 * t; const f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3); D.push({ x: f(p0[0], p1[0], p2[0], p3[0]), y: f(p0[1], p1[1], p2[1], p3[1]) }); }
+  }
+  N = D.length; for (let i = 0; i < N; i++) { const a = D[(i - 1 + N) % N], b = D[(i + 1) % N]; D[i].a = Math.atan2(b.y - a.y, b.x - a.x); }
+  path = new Path2D(); D.forEach((p, i) => (i ? path.lineTo(p.x, p.y) : path.moveTo(p.x, p.y))); path.closePath();
+  pads = [Math.floor(N * 0.2), Math.floor(N * 0.55), Math.floor(N * 0.8)];
+  trees = []; const r = (s => () => { s = (s * 16807) % 2147483647; return s / 2147483647; })(7);
+  for (let k = 0; k < 400 && trees.length < 70; k++) { const x = r() * 1100 - 50, y = r() * 1600 - 50; let near = 1e9; for (let i = 0; i < N; i += 3) near = Math.min(near, Math.hypot(D[i].x - x, D[i].y - y)); if (near > CFG.trackWidth / 2 + 50) trees.push({ x, y, s: 26 + r() * 16 }); }
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const p of D) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); } mm = { x0, y0, s: Math.min(78 / (x1 - x0), 104 / (y1 - y0)) };
+}
+function nearest(c, wide) {
+  let best = c.idx || 0, bd = 1e9; const from = wide ? 0 : c.idx - 25, to = wide ? N : c.idx + 45;
+  for (let k = from; k < to; k++) { const i = ((k % N) + N) % N, d = (D[i].x - c.x) ** 2 + (D[i].y - c.y) ** 2; if (d < bd) { bd = d; best = i; } }
+  c.off = Math.sqrt(bd) > CFG.trackWidth / 2; return best;
+}
+function progress(c) { return c.lap * N + c.idx; }
+const adiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+
+function physics(g, c, dt, gas, steerTo, keySteer, brake) {
+  const fx = Math.cos(c.a), fy = Math.sin(c.a), vf = c.vx * fx + c.vy * fy, vl = -c.vx * fy + c.vy * fx, speed = Math.hypot(c.vx, c.vy);
+  const turn = CFG.turnRate * g.clamp(Math.abs(vf) / 140, 0.25, 1) * dt;
+  let steering = 0;
+  if (steerTo != null) { const d = adiff(steerTo, c.a); steering = d; c.a += g.clamp(d, -turn, turn); }
+  if (keySteer) { c.a += keySteer * turn; steering = keySteer * 1.2; c.steerT += dt; } else c.steerT = 0;
+  c.drift = speed > 170 && (Math.abs(steering) > 0.85 || c.steerT > 0.35 || Math.abs(vl) > 90);
+  const top = CFG.maxSpeed * (c.off ? 0.5 : 1) * (c.boost > 0 ? 1.45 : 1) * (c.cap || 1);
+  let nvf = vf + (gas ? CFG.accel * (c.boost > 0 ? 2 : 1) : 0) * dt - (brake ? 420 * dt : 0);
+  nvf = Math.min(nvf, top); if (vf > top) nvf = vf - (vf - top) * Math.min(1, dt * 3); nvf -= nvf * (c.off ? 1.2 : 0.15) * dt;
+  const nvl = vl * Math.exp(-(c.drift ? CFG.driftGrip : CFG.grip) * dt);
+  c.vx = fx * nvf - fy * nvl; c.vy = fy * nvf + fx * nvl;
+  c.x = g.clamp(c.x + c.vx * dt, -100, 1150); c.y = g.clamp(c.y + c.vy * dt, -100, 1650);
+  c.boost -= dt; return { vf: nvf, vl: nvl };
+}
+
+const GAME = {
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.grass, music: CFG.music, formatScore: true, overEmoji: '🏁', winText: 'You won the race!',
+  init(g) {
+    if (!D) buildTrack(g);
+    const a = D[0].a, nx = -Math.sin(a), ny = Math.cos(a), mk = (k, color, name, ai) => { const back = 2 + Math.floor(k / 2) * 5, side = (k % 2 ? 1 : -1) * 26, b = D[(N - back) % N]; return { x: b.x + nx * side, y: b.y + ny * side, a, vx: 0, vy: 0, color, name, ai, lap: 0, idx: (N - back) % N, half: false, boost: 0, steerT: 0, drift: false, skill: CFG.aiSkill * (0.94 + k * 0.035), lane: g.rand(-20, 20), done: false, nitro: 0 }; };
+    cars = [mk(3, CFG.playerColor, 'YOU', false), ...CFG.rivalColors.map((c, i) => mk(i, c, CFG.rivalNames[i] || 'CPU', true))];
+    P = cars[0]; P.lap = 0; P.otT = g.t + 6; cam = { x: P.x, y: P.y - 80 }; skids = []; smoke = []; phase = 'count'; phaseT = 3.2; finished = 0; lastPlace = 4; P.driftPts = 0;
+    if (!g.data.btn) { g.data.btn = 1; g.buttons([{ id: 'boost', label: 'NITRO', icon: '🔥', key: ['Shift', ' ', 'b'], color: '#f97316' }]); }
+  },
+  update(g, dt) {
+    const inp = g.input;
+    if (phase === 'count') { const before = Math.ceil(phaseT); phaseT -= dt; const now = Math.ceil(phaseT); if (now !== before) { if (now > 0) { g.banner(String(now)); g.sfx('tick'); } else { g.banner('GO!'); g.sfx('power'); phase = 'race'; } } return; }
+    for (const c of cars) {
+      let gas = true, steerTo = null, keySteer = 0, brake = false;
+      if (!c.ai) {
+        if (phase === 'done') { gas = false; brake = true; }
+        const kx = (inp.key('ArrowRight') || inp.key('d') ? 1 : 0) - (inp.key('ArrowLeft') || inp.key('a') ? 1 : 0);
+        if (kx) keySteer = kx; else if (inp.down && Math.hypot(inp.axis.x, inp.axis.y) > 0.4) steerTo = Math.atan2(inp.axis.y, inp.axis.x);
+        brake = brake || inp.key('ArrowDown') || inp.key('s');
+        if ((inp.buttonPressed('boost')) && c.nitro >= 0.25) { c.nitro -= 0.25; c.boost = 1.3; g.sfx('power'); g.shake(4); }
+      } else {
+        const look = D[(c.idx + 15) % N], ahead = D[(c.idx + 40) % N], nx = -Math.sin(look.a), ny = Math.cos(look.a), lane = c.lane + Math.sin(g.t * 0.4 + c.skill * 9) * 14;
+        steerTo = Math.atan2(look.y + ny * lane - c.y, look.x + nx * lane - c.x);
+        const bend = Math.abs(adiff(ahead.a, look.a)); const gap = (progress(c) - progress(P)) * 9;
+        c.cap = c.skill * (1 - Math.min(0.35, bend * 0.45)) * (gap > 240 ? 0.86 : gap < -240 ? 1.1 : 1);
+        if (c.boost <= 0 && pads.some((p) => Math.abs(p - c.idx) < 3)) c.boost = 1;
+      }
+      const prevIdx = c.idx, v = physics(g, c, dt, gas, steerTo, keySteer, brake);
+      c.idx = nearest(c);
+      if (c.idx > N * 0.4 && c.idx < N * 0.6) c.half = true;
+      if (prevIdx > N * 0.85 && c.idx < N * 0.15 && c.half) { c.lap++; c.half = false; if (!c.ai) { if (c.lap < CFG.laps) { g.banner('LAP ' + (c.lap + 1) + ' / ' + CFG.laps, c.lap === CFG.laps - 1 ? 'Final lap!' : ''); g.sfx('combo'); g.addScore(100); } } }
+      if (!c.ai) {
+        if (Math.floor(c.idx / (N / 8)) !== Math.floor(prevIdx / (N / 8)) && c.idx > prevIdx) { g.addScore(10); c.nitro = Math.min(1, c.nitro + 0.04); }
+        if (pads.some((p) => Math.abs(p - c.idx) < 3) && c.boost < 0.5) { c.boost = 1; g.sfx('power'); g.floatText(180, 250, 'BOOST!', '#fde047', 20); }
+        if (c.drift && !c.off) { c.driftPts += Math.abs(v.vl) * dt * 0.12; c.nitro = Math.min(1, c.nitro + dt * 0.32); }
+        else if (c.driftPts > 3) { const pts = Math.round(c.driftPts); g.addScore(pts); g.floatText(180, 260, 'DRIFT +' + pts, '#fde047', 20); if (pts > 40) g.sfx('combo'); c.driftPts = 0; } else c.driftPts = 0;
+      }
+      if (c.drift || c.boost > 0) {
+        const bx = c.x - Math.cos(c.a) * 12, by = c.y - Math.sin(c.a) * 12;
+        if (c.drift) for (const s of [-6, 6]) skids.push({ x: bx - Math.sin(c.a) * s, y: by + Math.cos(c.a) * s }); if (skids.length > 900) skids.splice(0, skids.length - 900);
+        if (g.frame % 2 === 0) smoke.push({ x: bx, y: by, r: 4, t: 0.6, c: c.boost > 0 ? '#fb923c' : '#e5e7eb' });
+      }
+      if (c.lap >= CFG.laps && !c.done) { c.done = true; c.place = ++finished; if (!c.ai) {
+        const place = c.place; g.addScore([1000, 600, 300, 100][place - 1] || 0); phase = 'done';
+        if (place === 1) { g.banner('1st PLACE!', '🏆'); g.sfx('win'); g.flash('#fde047', 0.4); g.after(2, () => g.win()); }
+        else { g.banner(PLACES[place - 1] + ' place', 'So close!'); g.sfx('lose'); GAME.overText = 'Finished ' + PLACES[place - 1]; g.after(2, () => g.over()); }
+      } }
+    }
+    for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
+      const a = cars[i], b = cars[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+      if (d < 26) { const o = (26 - d) / 2, nx = dx / d, ny = dy / d; a.x -= nx * o; a.y -= ny * o; b.x += nx * o; b.y += ny * o; const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny; if (rv < 0) { a.vx += nx * rv * 0.5; a.vy += ny * rv * 0.5; b.vx -= nx * rv * 0.5; b.vy -= ny * rv * 0.5; if ((a === P || b === P) && rv < -40) { g.sfx('hit'); g.shake(4); } } }
+    }
+    const place = 1 + cars.filter((c) => c !== P && (c.done && (!P.done || c.place < P.place) || (!c.done && !P.done && progress(c) > progress(P)))).length;
+    if (phase === 'race' && place < lastPlace && g.t > (P.otT || 0)) { P.otT = g.t + 2.5; g.addScore(50); g.floatText(180, 230, 'OVERTAKE! ' + PLACES[place - 1], '#4ade80', 18); g.sfx('coin'); }
+    lastPlace = place; P.placeNow = place;
+    for (let i = smoke.length - 1; i >= 0; i--) { const s = smoke[i]; s.t -= dt; s.r += dt * 20; if (s.t <= 0) smoke.splice(i, 1); }
+    const sp = Math.hypot(P.vx, P.vy); cam.x = g.lerp(cam.x, P.x + P.vx * 0.45, Math.min(1, dt * 4)); cam.y = g.lerp(cam.y, P.y + P.vy * 0.45, Math.min(1, dt * 4)); P.speed = sp;
+  },
+  draw(g, ctx) {
+    g.clear(CFG.grass);
+    if (!cars) return;
+    ctx.save(); ctx.translate(180 - cam.x, 340 - cam.y);
+    const vx0 = cam.x - 180 + g.viewX - 20, vy0 = cam.y - 340 + g.viewY - 20, vw = g.viewW + 40, vh = g.viewH + 40;
+    ctx.fillStyle = CFG.grassAlt; for (let y = Math.floor(vy0 / 90) * 90; y < vy0 + vh; y += 180) ctx.fillRect(vx0, y, vw, 90);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.lineWidth = CFG.trackWidth + 16; ctx.strokeStyle = CFG.curbA; ctx.stroke(path);
+    ctx.setLineDash([18, 18]); ctx.strokeStyle = CFG.curbB; ctx.stroke(path); ctx.setLineDash([]);
+    ctx.lineWidth = CFG.trackWidth; ctx.strokeStyle = CFG.asphalt; ctx.stroke(path);
+    ctx.lineWidth = 2; ctx.setLineDash([22, 26]); ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.stroke(path); ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(0,0,0,.28)'; for (const s of skids) if (s.x > vx0 && s.x < vx0 + vw && s.y > vy0 && s.y < vy0 + vh) ctx.fillRect(s.x - 1.5, s.y - 1.5, 3, 3);
+    const s0 = D[0]; ctx.save(); ctx.translate(s0.x, s0.y); ctx.rotate(s0.a + Math.PI / 2); for (let k = 0; k < 10; k++) for (let r = 0; r < 2; r++) g.rect(-CFG.trackWidth / 2 + k * CFG.trackWidth / 10, -8 + r * 8, CFG.trackWidth / 10, 8, (k + r) % 2 ? '#111' : '#fff'); ctx.restore();
+    for (const pi of pads) { const p = D[pi]; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); for (let k = 0; k < 3; k++) { ctx.fillStyle = 'rgba(253,224,71,' + (0.5 + 0.5 * Math.sin(g.t * 8 - k)).toFixed(2) + ')'; ctx.beginPath(); ctx.moveTo(-14 + k * 12, -16); ctx.lineTo(-2 + k * 12, 0); ctx.lineTo(-14 + k * 12, 16); ctx.lineTo(-20 + k * 12, 16); ctx.lineTo(-8 + k * 12, 0); ctx.lineTo(-20 + k * 12, -16); ctx.fill(); } ctx.restore(); }
+    for (const s of smoke) { ctx.globalAlpha = s.t * 0.6; g.circle(s.x, s.y, s.r, s.c); } ctx.globalAlpha = 1;
+    for (const c of [...cars].sort((a, b) => a.y - b.y)) {
+      ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.a);
+      g.rect(-15, -8, 32, 18, 'rgba(0,0,0,.3)', 6);
+      for (const [wx, wy] of [[-10, -9], [8, -9], [-10, 7], [8, 7]]) g.rect(wx - 3, wy - 1, 7, 3, '#111', 1);
+      g.rect(-16, -8, 32, 16, c.color, 6); g.rect(-2, -6, 8, 12, 'rgba(15,23,42,.85)', 3); g.rect(-14, -2, 10, 4, 'rgba(255,255,255,.7)', 2);
+      g.rect(-17, -7, 2, 4, '#fca5a5', 1); g.rect(-17, 3, 2, 4, '#fca5a5', 1);
+      if (c.boost > 0) { g.circle(-20, 0, 5 + Math.random() * 3, '#fb923c'); g.circle(-19, 0, 3, '#fde68a'); }
+      ctx.restore();
+      if (c === P) g.ring(c.x, c.y, 24, 'rgba(255,255,255,.35)', 2);
+    }
+    for (const t of trees) if (t.x > vx0 - 30 && t.x < vx0 + vw + 30 && t.y > vy0 - 30 && t.y < vy0 + vh + 30) { g.circle(t.x + 4, t.y + 8, t.s * 0.4, 'rgba(0,0,0,.2)'); g.emoji(CFG.tree, t.x, t.y, t.s); }
+    ctx.restore();
+    const pl = P.placeNow || 4;
+    g.rect(110, 26, 140, 44, 'rgba(0,0,0,.6)', 12); g.text(PLACES[pl - 1], 148, 48, { size: 24, weight: 900, color: pl === 1 ? '#fde047' : '#fff' });
+    g.text('LAP ' + Math.min(CFG.laps, P.lap + 1) + '/' + CFG.laps, 212, 42, { size: 12, weight: 900 }); g.text(Math.round((P.speed || 0) / 3) + ' km/h', 212, 58, { size: 11, color: '#ffffffaa' });
+    g.rect(14, 600, 120, 12, 'rgba(0,0,0,.5)', 6); g.rect(14, 600, 120 * P.nitro, 12, P.nitro >= 0.25 ? '#f97316' : '#78716c', 6); g.text('NITRO', 74, 590, { size: 10, weight: 900, color: '#ffffffcc' });
+    const ox = 268, oy = 84; g.rect(ox - 6, oy - 6, 90, 116, 'rgba(0,0,0,.45)', 10);
+    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 3; ctx.beginPath(); for (let i = 0; i < N; i += 4) { const x = ox + (D[i].x - mm.x0) * mm.s, y = oy + (D[i].y - mm.y0) * mm.s; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.closePath(); ctx.stroke();
+    for (const c of cars) g.circle(ox + (c.x - mm.x0) * mm.s, oy + (c.y - mm.y0) * mm.s, c === P ? 4 : 3, c.color);
+    if (P.drift && P.driftPts > 3) g.text('DRIFT ' + Math.round(P.driftPts), 180, 290, { size: 18, weight: 900, color: '#fde047', glow: 'rgba(0,0,0,.5)' });
+  },
+};
+Kit.game(GAME);
+</script>
+</body>
+</html>

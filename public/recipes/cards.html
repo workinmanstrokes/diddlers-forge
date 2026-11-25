@@ -1,0 +1,233 @@
+<!-- app: {"name":"Card Quest","emoji":"🃏","color":"#f59e0b","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Card Quest</title>
+<script src="kit/game.js"></script>
+<style>
+#table{position:fixed;left:0;right:0;bottom:0;height:206px;z-index:6;display:none;pointer-events:none;font-family:ui-rounded,system-ui,sans-serif;color:#fff}
+#hand{position:absolute;left:0;right:0;bottom:calc(10px + env(safe-area-inset-bottom));height:146px;display:flex;justify-content:center;align-items:flex-end;pointer-events:none}
+.cd{position:relative;flex:none;width:88px;height:128px;margin:0 -9px;border-radius:12px;background:linear-gradient(180deg,var(--card) 0%,#0c0a09 100%);border:2px solid rgba(255,255,255,.18);box-shadow:0 8px 18px rgba(0,0,0,.5);pointer-events:auto;touch-action:none;cursor:grab;transition:transform .15s,box-shadow .15s,opacity .2s;display:flex;flex-direction:column;align-items:center;padding:16px 6px 6px;box-sizing:border-box;user-select:none;-webkit-user-select:none}
+.cd:before{content:"";position:absolute;left:0;right:0;top:0;height:6px;border-radius:10px 10px 0 0;background:var(--band)}
+.cd.attack{--band:#ef4444}.cd.skill{--band:#22c55e}.cd.power{--band:#a855f7}
+.cd.ok{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 10px 22px rgba(0,0,0,.55)}
+.cd.ok:hover{transform:translateY(-16px) rotate(0deg)!important;z-index:5}
+.cd.drag{transition:none;z-index:9;cursor:grabbing;box-shadow:0 18px 30px rgba(0,0,0,.6)}
+.cd.no{animation:nope .3s}@keyframes nope{25%{margin-left:-15px}75%{margin-left:-3px}}
+.cd.gone{opacity:0;transform:translateY(-140px) scale(.7)!important}
+.cd .cost{position:absolute;left:-7px;top:-9px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:900;font-size:15px;color:#1c1300;background:radial-gradient(circle at 35% 35%,#fde68a,#f59e0b);border:2px solid #78350f}
+.cd .art{font-size:30px;line-height:1;margin:2px 0 4px;pointer-events:none}
+.cd b{font-size:12.5px;line-height:1.1;text-align:center;pointer-events:none}
+.cd small{font-size:11px;line-height:1.15;opacity:.85;text-align:center;margin-top:3px;pointer-events:none}
+#endBtn{position:absolute;right:max(12px,env(safe-area-inset-right));bottom:calc(164px + env(safe-area-inset-bottom));pointer-events:auto;min-height:44px;padding:0 16px;border-radius:14px;border:0;font:900 14px ui-rounded,system-ui,sans-serif;color:#1c1300;background:linear-gradient(180deg,#fde68a,var(--accent));box-shadow:0 4px 0 rgba(0,0,0,.4);cursor:pointer}
+#endBtn:disabled{filter:grayscale(1) brightness(.6)}
+#energy{position:absolute;left:max(12px,env(safe-area-inset-left));bottom:calc(158px + env(safe-area-inset-bottom));width:62px;height:62px;border-radius:50%;background:rgba(0,0,0,.6);border:3px solid var(--accent);display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:900;font-size:18px;line-height:1.05;color:#fde68a;box-shadow:0 0 18px color-mix(in srgb,var(--accent) 45%,transparent)}
+#energy small{font-size:11px;letter-spacing:.02em;color:#fff;opacity:.8}
+#energy.empty{color:#a8a29e;box-shadow:none}
+.pile{position:absolute;bottom:calc(176px + env(safe-area-inset-bottom));font-size:12px;font-weight:800;opacity:.85;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="table"><div id="energy"><span>3/3</span><small>ENERGY</small></div><div class="pile" id="drawPile" style="left:84px"></div><button id="endBtn" type="button">End turn ▶</button><div id="hand"></div></div>
+<script>
+// TUNING — change these first: names, colors, cards, enemies, difficulty
+const CFG = {
+  "title": "Card Quest",
+  "emoji": "🃏",
+  "help": "Tap a card to play it, or drag it onto an enemy. Watch the enemy's next move above its head. Win fights, pick new cards, beat the boss on floor 10!",
+  "accent": "#f59e0b",
+  "bgTop": "#1c1917",
+  "bgBottom": "#3f2a1d",
+  "floor": "#292524",
+  "cardColor": "#3a2f28",
+  "music": "chill",
+  "hero": "🧙",
+  "heroName": "You",
+  "heroHp": 70,
+  "energy": 3,
+  "handSize": 5,
+  "floors": 10,
+  "hpGrowth": 0.09,
+  "starterDeck": ["strike", "strike", "strike", "strike", "strike", "defend", "defend", "defend", "defend", "bash"],
+  "cards": [
+    { "id": "strike", "name": "Strike", "icon": "🗡️", "cost": 1, "type": "attack", "dmg": 6 },
+    { "id": "defend", "name": "Defend", "icon": "🛡️", "cost": 1, "type": "skill", "block": 5 },
+    { "id": "bash", "name": "Bash", "icon": "🔨", "cost": 2, "type": "attack", "dmg": 8, "vuln": 2 },
+    { "id": "cleave", "name": "Cleave", "icon": "🌀", "cost": 1, "type": "attack", "dmg": 7, "aoe": true },
+    { "id": "quick", "name": "Quick Slash", "icon": "⚡", "cost": 1, "type": "attack", "dmg": 7, "draw": 1 },
+    { "id": "twin", "name": "Twin Strike", "icon": "⚔️", "cost": 1, "type": "attack", "dmg": 5, "hits": 2 },
+    { "id": "heavy", "name": "Heavy Blow", "icon": "💥", "cost": 2, "type": "attack", "dmg": 15 },
+    { "id": "wall", "name": "Iron Wall", "icon": "🧱", "cost": 2, "type": "skill", "block": 13 },
+    { "id": "parry", "name": "Parry", "icon": "🤺", "cost": 1, "type": "skill", "block": 6, "draw": 1 },
+    { "id": "heal", "name": "Second Wind", "icon": "💚", "cost": 1, "type": "skill", "heal": 6 },
+    { "id": "hex", "name": "Hex", "icon": "🪄", "cost": 1, "type": "skill", "weak": 2, "vuln": 1 },
+    { "id": "focus", "name": "Focus", "icon": "🔋", "cost": 0, "type": "skill", "energy": 1, "draw": 1 },
+    { "id": "rage", "name": "Battle Cry", "icon": "🔥", "cost": 1, "type": "power", "strength": 2 }
+  ],
+  "enemies": [
+    { "name": "Giant Rat", "icon": "🐀", "hp": 16, "moves": [{ "t": "attack", "n": 5 }, { "t": "attack", "n": 3 }, { "t": "block", "n": 4 }] },
+    { "name": "Bat", "icon": "🦇", "hp": 12, "moves": [{ "t": "attack", "n": 4 }, { "t": "attack", "n": 6 }] },
+    { "name": "Spider", "icon": "🕷️", "hp": 20, "moves": [{ "t": "debuff", "n": 2 }, { "t": "attack", "n": 7 }, { "t": "attack", "n": 4 }] },
+    { "name": "Skeleton", "icon": "💀", "hp": 26, "moves": [{ "t": "block", "n": 6 }, { "t": "attack", "n": 9 }, { "t": "buff", "n": 2 }] },
+    { "name": "Wolf", "icon": "🐺", "hp": 24, "moves": [{ "t": "attack", "n": 8 }, { "t": "attack", "n": 5 }, { "t": "buff", "n": 1 }] }
+  ],
+  "elites": [
+    { "name": "Ogre", "icon": "👹", "hp": 60, "moves": [{ "t": "buff", "n": 3 }, { "t": "attack", "n": 14 }, { "t": "block", "n": 10 }, { "t": "attack", "n": 9 }] },
+    { "name": "Ghost Knight", "icon": "👻", "hp": 52, "moves": [{ "t": "debuff", "n": 2 }, { "t": "attack", "n": 12 }, { "t": "attack", "n": 12 }] }
+  ],
+  "boss": { "name": "Dragon", "icon": "🐉", "hp": 130, "moves": [{ "t": "buff", "n": 2 }, { "t": "attack", "n": 14 }, { "t": "block", "n": 12 }, { "t": "attack", "n": 9 }, { "t": "debuff", "n": 2 }, { "t": "attack", "n": 19 }] }
+};
+
+// GAME
+const SLOTS = [[[256, 306]], [[222, 288], [306, 330]], [[196, 278], [268, 326], [330, 274]]], HERO = { x: 78, y: 326 };
+let hero, deck, draw, hand, disc, foes, floor, energy, turn, target, busy, fx, uid, table, handEl, endBtn, dragging;
+
+const C = (id) => CFG.cards.find((c) => c.id === id);
+const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+function desc(c) {
+  const d = [], dmg = c.dmg != null ? Math.max(0, Math.floor((c.dmg + hero.str) * (hero.weak > 0 ? 0.75 : 1))) : 0;
+  if (c.dmg != null) d.push('Deal ' + dmg + (c.hits > 1 ? ' ×' + c.hits : '') + (c.aoe ? ' to ALL' : '') + '.');
+  if (c.block) d.push('Block ' + c.block + '.'); if (c.vuln) d.push('Vulnerable ' + c.vuln + '.'); if (c.weak) d.push('Weak ' + c.weak + '.');
+  if (c.heal) d.push('Heal ' + c.heal + '.'); if (c.strength) d.push('+' + c.strength + ' Strength.'); if (c.energy) d.push('+' + c.energy + ' energy.'); if (c.draw) d.push('Draw ' + c.draw + '.');
+  return d.join(' ');
+}
+function drawCards(n) { for (let i = 0; i < n; i++) { if (!draw.length) { if (!disc.length) break; draw = shuffle(disc); disc = []; } if (hand.length < 9) hand.push(draw.pop()); } }
+function mkFoe(def, k, scale) { const hp = Math.round(def.hp * scale); return { ...def, hp, max: hp, block: 0, str: 0, weak: 0, vuln: 0, mi: k % def.moves.length, x: 0, y: 0, hit: 0, shake: 0, dead: false, big: def === CFG.boss || CFG.elites.includes(def) }; }
+function startFight(g) {
+  floor++; const sc = 1 + (floor - 1) * CFG.hpGrowth, boss = floor >= CFG.floors, elite = !boss && floor % 3 === 0;
+  if (boss) foes = [mkFoe(CFG.boss, 0, 1)];
+  else if (elite) foes = [mkFoe(g.pick(CFG.elites), 0, sc)];
+  else { const n = floor < 3 ? 1 : floor < 6 ? g.randi(1, 2) : g.randi(2, 3); foes = []; for (let i = 0; i < n; i++) foes.push(mkFoe(g.pick(CFG.enemies), g.randi(0, 3), sc * (n > 1 ? 0.8 : 1))); }
+  foes.forEach((f, i) => { const s = SLOTS[foes.length - 1][i]; f.x = s[0]; f.y = s[1]; });
+  draw = shuffle(deck.slice()); disc = []; hand = []; hero.block = 0; hero.str = 0; hero.weak = 0; target = foes[0];
+  g.banner(boss ? 'BOSS: ' + CFG.boss.name : elite ? 'ELITE FIGHT' : 'FLOOR ' + floor, boss ? 'Final floor!' : foes.map((f) => f.name).join(' · '));
+  startTurn(g);
+}
+function startTurn(g) { turn = 'player'; busy = false; energy = CFG.energy; hero.block = 0; drawCards(CFG.handSize); render(g); }
+function hit(g, f, amount, from) {
+  let dmg = Math.max(0, Math.floor(amount * (f.vuln > 0 ? 1.5 : 1))); const b = Math.min(f.block, dmg); f.block -= b; dmg -= b;
+  f.hp -= dmg; f.hit = 0.15; f.shake = 0.25; g.floatText(f.x, f.y - 50, dmg ? '-' + dmg : 'blocked', dmg ? '#fca5a5' : '#93c5fd', 22);
+  g.particles(f.x, f.y, { color: ['#fff', '#ef4444', CFG.accent], n: 8 + Math.min(20, dmg), speed: 160 }); g.sfx(dmg >= 12 ? 'explode' : 'hit'); g.shake(Math.min(10, 2 + dmg / 3));
+  fx.push({ x0: from.x, y0: from.y, x1: f.x, y1: f.y, t: 0.25 });
+  if (from === HERO) g.addScore(dmg);
+  if (f.hp <= 0 && !f.dead) { f.dead = true; f.hp = 0; g.particles(f.x, f.y, { color: ['#a8a29e', '#fff', CFG.accent], n: 40, speed: 240 }); g.sfx('pop'); if (target === f) target = foes.find((o) => !o.dead); }
+}
+function play(g, u, tgt, anim) {
+  if (turn !== 'player' || busy) return false;
+  const card = hand.find((h) => h.uid === u); if (!card) return false; const c = C(card.id);
+  if (c.cost > energy) { const el = handEl.querySelector('[data-u="' + u + '"]'); if (el) { el.classList.remove('no'); void el.offsetWidth; el.classList.add('no'); } g.floatText(180, 380, 'Not enough energy', '#fca5a5', 16); g.sfx('hit'); return false; }
+  energy -= c.cost; hand.splice(hand.indexOf(card), 1); if (c.type !== 'power') disc.push(card);
+  const t = tgt && !tgt.dead ? tgt : target && !target.dead ? target : foes.find((f) => !f.dead);
+  if (c.dmg != null) { const per = Math.max(0, Math.floor((c.dmg + hero.str) * (hero.weak > 0 ? 0.75 : 1))); for (let k = 0; k < (c.hits || 1); k++) for (const f of c.aoe ? foes.filter((o) => !o.dead) : [t]) if (f && !f.dead) hit(g, f, per, HERO); }
+  if (c.block) { hero.block += c.block; g.sfx('power'); g.floatText(HERO.x, HERO.y - 56, '+' + c.block + ' 🛡️', '#93c5fd', 18); }
+  if (c.vuln && t) { t.vuln += c.vuln; g.floatText(t.x, t.y - 72, 'Vulnerable', '#fde68a', 14); }
+  if (c.weak && t) { t.weak += c.weak; g.floatText(t.x, t.y - 88, 'Weak', '#c4b5fd', 14); }
+  if (c.heal) { hero.hp = Math.min(hero.max, hero.hp + c.heal); g.floatText(HERO.x, HERO.y - 56, '+' + c.heal + ' ❤️', '#86efac', 18); g.sfx('coin'); }
+  if (c.strength) { hero.str += c.strength; g.floatText(HERO.x, HERO.y - 72, '+' + c.strength + ' 💪', '#fdba74', 18); g.sfx('power'); }
+  if (c.energy) energy += c.energy;
+  if (c.draw) drawCards(c.draw);
+  if (foes.every((f) => f.dead)) win(g);
+  if (anim) setTimeout(() => render(g), 170); else render(g); return true;
+}
+function win(g) {
+  busy = true; turn = 'reward'; const boss = floor >= CFG.floors;
+  g.addScore(boss ? 1000 : foes.some((f) => f.big) ? 300 : 100); g.sfx('win'); g.flash(CFG.accent, 0.25);
+  if (boss) { g.banner('VICTORY!', 'The ' + CFG.boss.name + ' is defeated'); g.after(1.6, () => g.win()); return; }
+  g.after(0.9, () => {
+    const pool = CFG.cards.filter((c) => !['strike', 'defend'].includes(c.id)), opts = shuffle(pool.slice()).slice(0, 2);
+    const choices = [...opts.map((c) => ({ icon: c.icon, title: c.name + ' (' + c.cost + '⚡)', desc: desc(c), add: c.id })), { icon: '🔥', title: 'Rest', desc: 'Heal ' + Math.round(hero.max * 0.3) + ' HP' }];
+    g.choose(choices, (i, o) => { if (o.add) { deck.push({ uid: uid++, id: o.add }); g.floatText(180, 220, '+ ' + C(o.add).name, CFG.accent, 18); } else hero.hp = Math.min(hero.max, hero.hp + Math.round(hero.max * 0.3)); startFight(g); }, { title: 'Floor ' + floor + ' cleared!', sub: 'Pick a reward · deck: ' + deck.length + ' cards', timeout: 25 });
+  });
+}
+function endTurn(g) {
+  if (turn !== 'player' || busy) return; busy = true; turn = 'enemy'; disc.push(...hand); hand = []; render(g);
+  if (hero.weak > 0) hero.weak--;
+  const living = foes.filter((f) => !f.dead);
+  living.forEach((f, i) => g.after(0.45 + i * 0.6, () => {
+    if (g.state !== 'play' || f.dead) return; f.block = 0; const m = f.moves[f.mi % f.moves.length];
+    if (m.t === 'attack') { let d = Math.floor((m.n + Math.floor(floor / 4) + f.str) * (f.weak > 0 ? 0.75 : 1)); const b = Math.min(hero.block, d); hero.block -= b; d -= b; hero.hp -= d; hero.hit = 0.2; f.lunge = 0.3; g.floatText(HERO.x, HERO.y - 50, d ? '-' + d : 'blocked!', d ? '#f87171' : '#93c5fd', 24); g.shake(d ? 4 + d / 2 : 2); g.sfx(d ? 'hit' : 'tick'); if (d) g.flash('#ef4444', 0.15); g.particles(HERO.x, HERO.y, { color: ['#ef4444', '#fff'], n: 6 + d, speed: 150 }); }
+    else if (m.t === 'block') { f.block += m.n + Math.floor(floor / 2); g.floatText(f.x, f.y - 50, '+' + f.block + ' 🛡️', '#93c5fd', 16); g.sfx('power'); }
+    else if (m.t === 'buff') { f.str += m.n; g.floatText(f.x, f.y - 50, '+' + m.n + ' 💪', '#fdba74', 16); g.sfx('power'); }
+    else if (m.t === 'debuff') { hero.weak += m.n; g.floatText(HERO.x, HERO.y - 70, 'Weak ' + m.n, '#c4b5fd', 16); g.sfx('lose'); }
+    f.mi = g.chance(0.8) ? f.mi + 1 : g.randi(0, f.moves.length - 1); if (f.weak > 0) f.weak--; if (f.vuln > 0) f.vuln--;
+    if (hero.hp <= 0) { hero.hp = 0; GAME.overText = 'Fell on floor ' + floor; g.after(0.6, () => g.over()); }
+  }));
+  g.after(0.55 + living.length * 0.6, () => { if (g.state === 'play' && hero.hp > 0) startTurn(g); });
+}
+function render(g) {
+  if (!handEl) return;
+  const en = document.getElementById('energy'); en.firstChild.textContent = energy + '/' + CFG.energy; en.classList.toggle('empty', !energy);
+  document.getElementById('drawPile').textContent = '🂠 ' + draw.length + '   ·   discard ' + disc.length;
+  endBtn.disabled = turn !== 'player' || busy;
+  handEl.innerHTML = '';
+  hand.forEach((h, i) => {
+    const c = C(h.id), el = document.createElement('div'), mid = (hand.length - 1) / 2, rot = (i - mid) * 4, lift = Math.abs(i - mid) * 4;
+    el.className = 'cd ' + c.type + (c.cost <= energy && turn === 'player' ? ' ok' : ''); el.dataset.u = h.uid; el.style.transform = 'translateY(' + lift + 'px) rotate(' + rot + 'deg)'; el.style.zIndex = String(i);
+    el.innerHTML = '<span class="cost"></span><span class="art"></span><b></b><small></small>';
+    el.querySelector('.cost').textContent = c.cost; el.querySelector('.art').textContent = c.icon; el.querySelector('b').textContent = c.name; el.querySelector('small').textContent = desc(c);
+    el.addEventListener('pointerdown', (e) => { e.preventDefault(); dragging = { el, u: h.uid, x: e.clientX, y: e.clientY, base: el.style.transform }; el.setPointerCapture(e.pointerId); el.classList.add('drag'); });
+    el.addEventListener('pointermove', (e) => { if (!dragging || dragging.el !== el) return; el.style.transform = 'translate(' + (e.clientX - dragging.x) + 'px,' + (e.clientY - dragging.y) + 'px) scale(1.08)'; });
+    const up = (e) => {
+      if (!dragging || dragging.el !== el) return; const d = dragging; dragging = null; el.classList.remove('drag');
+      const moved = d.y - e.clientY > 50, s = window.innerWidth / g.viewW, gx = e.clientX / s + g.viewX, gy = e.clientY / s + g.viewY;
+      const tgt = moved ? foes.filter((f) => !f.dead).sort((a, b) => Math.hypot(a.x - gx, a.y - gy) - Math.hypot(b.x - gx, b.y - gy))[0] : null;
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 12 || moved) { el.classList.add('gone'); if (!play(g, d.u, tgt, true)) { el.classList.remove('gone'); el.style.transform = d.base; } }
+      else el.style.transform = d.base;
+    };
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', () => { if (dragging && dragging.el === el) { el.style.transform = dragging.base; el.classList.remove('drag'); dragging = null; } });
+    handEl.appendChild(el);
+  });
+}
+
+const GAME = {
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.bgTop, music: CFG.music, overEmoji: '🪦', winText: 'You conquered the dungeon!',
+  init(g) {
+    document.documentElement.style.setProperty('--accent', CFG.accent); document.documentElement.style.setProperty('--card', CFG.cardColor);
+    table = document.getElementById('table'); handEl = document.getElementById('hand'); endBtn = document.getElementById('endBtn');
+    if (!endBtn.dataset.w) { endBtn.dataset.w = 1; endBtn.addEventListener('click', () => endTurn(g)); }
+    uid = 1; hero = { hp: CFG.heroHp, max: CFG.heroHp, block: 0, str: 0, weak: 0, hit: 0 }; deck = CFG.starterDeck.map((id) => ({ uid: uid++, id }));
+    floor = 0; fx = []; foes = []; hand = []; draw = []; disc = []; turn = 'none'; busy = true; dragging = null; target = null;
+  },
+  update(g, dt) {
+    if (turn === 'none') startFight(g);
+    const inp = g.input;
+    if (inp.pressed) { const f = foes.find((o) => !o.dead && Math.hypot(o.x - inp.x, o.y - inp.y) < (o.big ? 50 : 36)); if (f) { target = f; g.sfx('tick'); } }
+    for (let k = 1; k <= 9; k++) if (inp.keyPressed(String(k)) && hand[k - 1]) play(g, hand[k - 1].uid);
+    if (inp.keyPressed('e') || inp.keyPressed('Enter')) endTurn(g);
+    hero.hit -= dt; for (const f of foes) { f.hit -= dt; f.shake -= dt; f.lunge = Math.max(0, (f.lunge || 0) - dt); }
+    for (let i = fx.length - 1; i >= 0; i--) { fx[i].t -= dt; if (fx[i].t <= 0) fx.splice(i, 1); }
+  },
+  draw(g, ctx) {
+    g.backdrop('bokeh', { colors: [CFG.bgTop, CFG.bgBottom], tint: [CFG.accent, '#fb923c'], speed: 0.5, alpha: 0.5 });
+    if (!hero) return;
+    const want = g.state === 'play' ? 'block' : 'none'; if (table && table.style.display !== want) table.style.display = want;
+    g.rect(g.viewX, 368, g.viewW, 80, CFG.floor); g.rect(g.viewX, 368, g.viewW, 3, 'rgba(255,255,255,.08)');
+    g.text('Floor ' + floor + ' / ' + CFG.floors, 180, 84, { size: 14, weight: 900, color: '#ffffffcc' });
+    const bar = (x, y, w, hp, max, block) => { g.rect(x - w / 2, y, w, 10, 'rgba(0,0,0,.55)', 5); g.rect(x - w / 2, y, w * Math.max(0, hp / max), 10, '#ef4444', 5); g.text(hp + '/' + max, x, y + 5, { size: 9, weight: 900 }); if (block > 0) { g.circle(x - w / 2 - 6, y + 5, 10, '#3b82f6'); g.text(String(block), x - w / 2 - 6, y + 5, { size: 10, weight: 900 }); } };
+    const bob = Math.sin(g.t * 2) * 3;
+    g.circle(HERO.x, HERO.y + 40, 26, 'rgba(0,0,0,.35)'); g.emoji(CFG.hero, HERO.x + (hero.hit > 0 ? g.rand(-4, 4) : 0), HERO.y + bob, 72);
+    if (hero.hit > 0) g.circle(HERO.x, HERO.y, 34, 'rgba(239,68,68,.35)');
+    bar(HERO.x, HERO.y + 52, 84, hero.hp, hero.max, hero.block);
+    let st = []; if (hero.str) st.push('💪' + hero.str); if (hero.weak) st.push('🥀' + hero.weak); if (st.length) g.text(st.join('  '), HERO.x, HERO.y + 76, { size: 12, weight: 800 });
+    for (const f of foes) {
+      if (f.dead) continue; const sz = f.big ? 96 : 64, x = f.x + (f.shake > 0 ? g.rand(-5, 5) : 0) - (f.lunge > 0 ? Math.sin(f.lunge / 0.3 * Math.PI) * 40 : 0), y = f.y + Math.sin(g.t * 2.2 + f.x) * 3;
+      g.circle(f.x, f.y + sz * 0.5, sz * 0.36, 'rgba(0,0,0,.35)');
+      if (f === target && foes.filter((o) => !o.dead).length > 1) g.ring(f.x, f.y, sz * 0.62, CFG.accent, 2.5);
+      g.emoji(f.icon, x, y, sz); if (f.hit > 0) g.circle(x, y, sz * 0.45, 'rgba(255,255,255,.4)');
+      bar(f.x, f.y + sz * 0.55, f.big ? 110 : 76, f.hp, f.max, f.block);
+      const m = f.moves[f.mi % f.moves.length], dmg = m.t === 'attack' ? Math.floor((m.n + Math.floor(floor / 4) + f.str) * (f.weak > 0 ? 0.75 : 1)) : 0;
+      const icon = { attack: '🗡️', block: '🛡️', buff: '💪', debuff: '🥀' }[m.t];
+      g.rect(f.x - 26, f.y - sz * 0.62 - 26, 52, 24, m.t === 'attack' ? 'rgba(127,29,29,.9)' : 'rgba(30,41,59,.9)', 12);
+      g.text(icon + (m.t === 'attack' ? ' ' + dmg : ''), f.x, f.y - sz * 0.62 - 14, { size: 13, weight: 900 });
+      const fs = []; if (f.str) fs.push('💪' + f.str); if (f.vuln) fs.push('🎯' + f.vuln); if (f.weak) fs.push('🥀' + f.weak); if (fs.length) g.text(fs.join(' '), f.x, f.y + sz * 0.55 + 22, { size: 11, weight: 800 });
+    }
+    for (const e of fx) { const k = 1 - e.t / 0.25; ctx.globalAlpha = e.t / 0.25; g.line(e.x1 - 24 + k * 10, e.y1 - 24, e.x1 + 24 - k * 10, e.y1 + 24, '#fff', 4); ctx.globalAlpha = 1; }
+    if (turn === 'enemy' && g.state === 'play') g.text('Enemy turn…', 180, 112, { size: 16, weight: 900, color: '#fca5a5' });
+  },
+};
+Kit.game(GAME);
+</script>
+</body>
+</html>

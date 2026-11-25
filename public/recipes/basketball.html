@@ -1,0 +1,222 @@
+<!-- app: {"name":"Hoop Rush","emoji":"🏀","color":"#f97316","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Hoop Rush</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: team names, colors, emoji, speeds, difficulty
+const CFG = {
+  "title": "Hoop Rush",
+  "emoji": "🏀",
+  "help": "Drag to move. PASS to a teammate, SHOOT at the top hoop (get close to dunk). On defense, SHOOT steals or blocks. First to 21 wins!",
+  "accent": "#f97316",
+  "arena": "#120c08",
+  "wood": "#d39a5e",
+  "woodDark": "#b97b41",
+  "lines": "#fff7ed",
+  "paint": "#7c2d12",
+  "homeName": "YOU",
+  "homeColor": "#2563eb",
+  "homeTrim": "#ffffff",
+  "homeEmoji": "",
+  "awayName": "CPU",
+  "awayColor": "#dc2626",
+  "awayTrim": "#ffffff",
+  "awayEmoji": "",
+  "music": "arcade",
+  "winScore": 21,
+  "gameSeconds": 180,
+  "shotClock": 12,
+  "playerSpeed": 145,
+  "aiSpeed": 0.95,
+  "passPower": 360,
+  "shooting": 1,
+  "aiShooting": 1,
+  "aiAggression": 0.5
+};
+
+// GAME
+const CT = { l: 22, r: 338, t: 80, b: 620 }, HT = { x: 180, y: 122 }, HB = { x: 180, y: 578 }, ARC = 140;
+const SPOTS = [[180, 300], [66, 196], [294, 196]];
+let pl, ball, me, pts, clock, shot, phase, phaseT, switchT, stick, lastPass;
+
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const hoopOf = (team) => (team === 0 ? HT : HB);
+const spot = (team, k) => (team === 0 ? { x: SPOTS[k][0], y: SPOTS[k][1] } : { x: 360 - SPOTS[k][0], y: 700 - SPOTS[k][1] });
+
+function give(g, p, reset) { if (reset || p.team !== ball.team || ball.afterShot) shot = CFG.shotClock; ball.owner = p; ball.mode = 'held'; ball.z = 0; ball.team = p.team; ball.afterShot = false; }
+function inbound(g, team) {
+  const own = team === 0 ? CT.b - 26 : CT.t + 26, p = pl.filter((q) => q.team === team).sort((a, b) => Math.abs(a.y - own) - Math.abs(b.y - own))[0];
+  p.x = 180; p.y = own; p.vx = p.vy = 0; give(g, p, true); phase = 'inbound'; phaseT = 0.8; ball.safe = g.t + 2.6; if (team === 0) me = p;
+}
+function release(p) { ball.owner = null; ball.x = p.x; ball.y = p.y; ball.from = p; }
+function pass(g, p) {
+  const mates = pl.filter((q) => q.team === p.team && q !== p), fwd = p.team === 0 ? -1 : 1;
+  const score = (q) => Math.min(...pl.filter((o) => o.team !== p.team).map((o) => dist(o, q))) + (q.y - p.y) * fwd * 0.4;
+  const to = mates.reduce((a, b) => (score(b) > score(a) ? b : a)), tx = to.x + to.vx * 0.3, ty = to.y + to.vy * 0.3, a = Math.atan2(ty - p.y, tx - p.x);
+  release(p); ball.mode = 'pass'; ball.vx = Math.cos(a) * CFG.passPower; ball.vy = Math.sin(a) * CFG.passPower; ball.to = to; ball.t = 0; g.sfx('click');
+  lastPass = { from: p, t: g.t, team: p.team }; if (p.team === 0) { me = to; switchT = g.t + 0.5; }
+}
+function shootBall(g, p) {
+  const h = hoopOf(p.team), d = dist(p, h), dunk = d < 46, three = d > ARC;
+  const def = pl.filter((o) => o.team !== p.team).reduce((a, b) => (dist(b, p) < dist(a, p) ? b : a)), dd = dist(def, p);
+  const skill = p.team === 0 ? CFG.shooting : CFG.aiShooting, contest = dd < 40 ? 0.5 + 0.5 * (dd / 40) : 1;
+  const base = dunk ? 0.93 : g.clamp(0.82 - (d - 46) / 330, 0.18, 0.8);
+  release(p); ball.afterShot = true; ball.mode = 'shot'; ball.shot = { sx: p.x, sy: p.y, t: 0, T: dunk ? 0.32 : 0.55 + d / 650, h: dunk ? 18 : 50 + d * 0.28, make: Math.random() < base * contest * skill, three, dunk, team: p.team, shooter: p };
+  p.jump = dunk ? 0.45 : 0.3; g.sfx(dunk ? 'power' : 'jump');
+}
+function canSteal(g) { return !(ball.safe > g.t); }
+function inFront(c, p) { const h = hoopOf(c.team); return (p.x - c.x) * (h.x - c.x) + (p.y - c.y) * (h.y - c.y) > 0; }
+function steal(g, from, by) {
+  release(from); ball.mode = 'loose'; ball.vx = (by.x - from.x) * 4 + g.rand(-50, 50); ball.vy = (by.y - from.y) * 4 + g.rand(-50, 50); ball.z = 10; ball.vz = 90;
+  from.stun = 0.5; g.sfx('hit'); g.particles(from.x, from.y, { color: ['#fff', CFG.accent], n: 10, speed: 140 });
+  if (by.team === 0) { g.addScore(50, by.x, by.y - 26); g.floatText(by.x, by.y - 44, 'STEAL!', '#fde047', 16); }
+}
+function made(g, s) {
+  const n = s.three ? 3 : 2; pts[s.team] += n; const h = hoopOf(s.team);
+  g.particles(h.x, h.y, { color: [s.team ? CFG.awayColor : CFG.homeColor, '#fff', '#fde047'], n: s.dunk ? 40 : 22, speed: s.dunk ? 260 : 160 });
+  if (s.team === 0) {
+    g.addScore(n * 100, h.x, h.y + 26); g.sfx(s.dunk ? 'explode' : 'win');
+    if (s.dunk) { g.shake(12); g.flash('#fff', 0.3); g.banner('SLAM DUNK!', '+' + n); } else if (s.three) g.banner('THREE!', 'From way downtown'); else g.floatText(h.x, h.y + 48, 'SWISH!', '#fff', 20);
+    if (lastPass && lastPass.team === 0 && lastPass.from !== s.shooter && g.t - lastPass.t < 3) g.addScore(50, s.shooter.x, s.shooter.y - 30);
+  } else { g.sfx('lose'); if (s.dunk) g.shake(8); g.floatText(h.x, h.y - 30, '+' + n + ' ' + CFG.awayName, '#fca5a5', 18); }
+  if (pts[s.team] >= CFG.winScore) { phase = 'done'; g.after(1.2, () => end(g)); return; }
+  phase = 'score'; phaseT = 1; ball.next = 1 - s.team;
+}
+function end(g) { const a = pts[0], b = pts[1]; if (a > b) { g.addScore(500); GAME.winText = 'You win ' + a + '–' + b + '!'; g.win(); } else { GAME.overText = 'Lost ' + a + '–' + b; g.over(); } }
+function steer(p, tx, ty, sp, dt) { const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy) || 1, s = sp * Math.min(1, d / 26); p.vx += (dx / d * s - p.vx) * Math.min(1, dt * 7); p.vy += (dy / d * s - p.vy) * Math.min(1, dt * 7); }
+function ai(g, p, dt) {
+  const T = p.team, h = hoopOf(T), ownH = hoopOf(1 - T), sp = CFG.playerSpeed * (T === 1 ? CFG.aiSpeed : 0.95), c = ball.owner;
+  if (c === p) {
+    const def = pl.filter((o) => o.team !== T).reduce((a, b) => (dist(b, p) < dist(a, p) ? b : a)), dd = dist(def, p), d = dist(p, h);
+    let tx = h.x + Math.sin(g.t + p.i * 2) * 60, ty = h.y + (T === 0 ? 24 : -24); if (dd < 40) tx += p.x > def.x ? 90 : -90;
+    const back = T === 1 ? p.y < 350 : p.y > 350;
+    if (dd < 34 && !(p.burst > g.t - 2)) { p.burst = g.t; if (T === 1) g.floatText(p.x, p.y - 28, 'crossover!', '#fde68a', 13); }
+    steer(p, tx, ty, sp * (back ? 1.12 : 0.98) * (g.t - p.burst < 0.55 ? 1.35 : 1), dt);
+    if (d < 46 || shot < 2) shootBall(g, p);
+    else if ((d < 190 && dd > 32 && g.chance(dt * 2)) || (d < 110 && g.chance(dt * 2.5))) shootBall(g, p);
+    else if (dd < 36 && g.chance(dt * 2.6)) pass(g, p);
+    return;
+  }
+  if (ball.mode === 'loose' || (ball.mode === 'shot' && ball.shot.t > 0.7)) {
+    const team = pl.filter((q) => q.team === T && q !== me), near = team.sort((a, b) => dist(a, ball) - dist(b, ball))[0];
+    if (near === p) { steer(p, ball.x, ball.y, sp * 1.05, dt); return; }
+  }
+  if (c && c.team === T) { const others = pl.filter((q) => q.team === T && q !== c), k = [0, 1, 2].filter((x) => x !== c.i)[others.indexOf(p)], s = spot(T, k); steer(p, s.x, s.y, sp, dt); return; }
+  const man = pl.find((o) => o.team !== T && o.i === p.i), m = c && c.team !== T && dist(c, p) < dist(man, p) - 40 ? c : man;
+  const gap = m === c ? 0.12 : 0.3; steer(p, m.x + (ownH.x - m.x) * gap, m.y + (ownH.y - m.y) * gap, sp, dt);
+  if (c && m === c && canSteal(g) && dist(p, c) < 32 && p.cd <= 0 && g.chance(dt * CFG.aiAggression * (T === 1 ? 1.3 : 0.8))) { p.cd = 1.1; p.jump = 0.2; if (g.chance((T === 1 ? 0.42 : 0.3) * (inFront(c, p) ? 1 : 0.35))) steal(g, c, p); else p.stun = 0.3; }
+  if (ball.mode === 'shot' && ball.shot.team !== T && ball.shot.t < 0.15 && dist(p, ball.shot.shooter) < 30 && p.cd <= 0 && !ball.shot.dunk) { p.cd = 1; p.jump = 0.35; if (g.chance(T === 1 ? 0.22 : 0.15)) block(g, p); }
+}
+function block(g, p) { ball.mode = 'loose'; ball.vx = g.rand(-160, 160); ball.vy = (p.team === 0 ? -1 : 1) * -g.rand(60, 160); ball.vz = 160; ball.z = 30; g.sfx('hit'); g.shake(6); g.floatText(p.x, p.y - 40, 'BLOCKED!', '#fde047', 18); if (p.team === 0) g.addScore(50); }
+
+const GAME = {
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.arena, music: CFG.music, overEmoji: '🏀', winText: 'You win!',
+  init(g) {
+    pl = []; for (let T = 0; T < 2; T++) for (let i = 0; i < 3; i++) { const s = spot(T, i); pl.push({ team: T, i, x: s.x, y: T === 0 ? s.y + 260 : s.y - 260, vx: 0, vy: 0, r: 12, stun: 0, cd: 0, jump: 0, burst: -9 }); }
+    ball = { x: 180, y: 350, z: 0, vz: 0, vx: 0, vy: 0, mode: 'loose', owner: null }; pts = [0, 0]; clock = CFG.gameSeconds; shot = CFG.shotClock; switchT = 0; stick = null; lastPass = null;
+    me = pl[0]; give(g, pl[0], true); pl[0].x = 180; pl[0].y = 470; phase = 'inbound'; phaseT = 0.8;
+    if (!g.data.btn) { g.data.btn = 1; g.buttons([{ id: 'shoot', label: 'SHOOT', icon: '🏀', key: ['z', 'Enter', 'k'], color: CFG.accent }, { id: 'pass', label: 'PASS', icon: '↗️', key: ['x', ' ', 'j'], color: CFG.homeColor }]); }
+  },
+  update(g, dt) {
+    const inp = g.input; if (inp.pressed) stick = { x: inp.x, y: inp.y }; if (!inp.down) stick = null;
+    if (phase === 'done') return;
+    if (phase === 'score') { phaseT -= dt; if (phaseT <= 0) inbound(g, ball.next); }
+    if (phase === 'inbound') { phaseT -= dt; if (phaseT <= 0) phase = 'play'; }
+    const live = phase === 'play';
+    if (live) {
+      clock -= dt; if (clock <= 0) { clock = 0; phase = 'done'; g.banner('Final buzzer!'); g.sfx('power'); g.after(1.2, () => end(g)); return; }
+      if (ball.owner) { shot -= dt; if (shot <= 0) { const t = ball.owner.team; g.floatText(ball.owner.x, ball.owner.y - 30, 'SHOT CLOCK!', '#fca5a5', 16); g.sfx('lose'); const o = pl.filter((q) => q.team !== t).sort((a, b) => dist(a, ball) - dist(b, ball))[0]; give(g, o, true); if (o.team === 0) me = o; } }
+    }
+    if (ball.owner && ball.owner.team === 0) me = ball.owner;
+    else if (g.t > switchT) { const best = pl.filter((q) => q.team === 0).reduce((a, b) => (dist(b, ball) < dist(a, ball) ? b : a)); if (best !== me && dist(best, ball) + 25 < dist(me, ball)) { me = best; switchT = g.t + 0.35; } }
+
+    for (const p of pl) {
+      p.stun -= dt; p.cd -= dt; p.jump = Math.max(0, p.jump - dt);
+      if (p.stun > 0 || (!live && phase !== 'inbound')) { p.vx *= Math.pow(0.05, dt); p.vy *= Math.pow(0.05, dt); }
+      else if (p === me) {
+        const sp = CFG.playerSpeed * (ball.owner === p ? 0.95 : 1.05);
+        p.vx += (inp.axis.x * sp - p.vx) * Math.min(1, dt * 8); p.vy += (inp.axis.y * sp - p.vy) * Math.min(1, dt * 8);
+        const passIt = inp.buttonPressed('pass') || inp.tap, shootIt = inp.buttonPressed('shoot') || inp.swipe === 'up';
+        if (ball.owner === p && live) { if (shootIt) shootBall(g, p); else if (passIt) pass(g, p); }
+        else if (shootIt && p.cd <= 0) {
+          p.cd = 1; p.jump = 0.3; g.sfx('jump');
+          const c = ball.owner;
+          if (c && c.team === 1 && dist(c, p) < 34 && canSteal(g)) { if (g.chance(inFront(c, p) ? 0.34 : 0.1)) steal(g, c, p); else { p.stun = 0.35; g.floatText(p.x, p.y - 30, 'reached!', '#ffffffaa', 14); } }
+          else if (ball.mode === 'shot' && ball.shot.team === 1 && ball.shot.t < 0.3 && dist(p, ball.shot.shooter) < 34 && !ball.shot.dunk && g.chance(0.6)) block(g, p);
+        } else if (inp.buttonPressed('pass') && !ball.owner) { const o = pl.filter((q) => q.team === 0 && q !== me).reduce((a, b) => (dist(b, ball) < dist(a, ball) ? b : a)); me = o; switchT = g.t + 0.6; }
+      } else if (live || phase === 'inbound') { if (phase === 'inbound' && ball.owner === p) { p.vx = p.vy = 0; } else ai(g, p, dt); }
+      p.x = g.clamp(p.x + p.vx * dt, CT.l + 10, CT.r - 10); p.y = g.clamp(p.y + p.vy * dt, CT.t + 10, CT.b - 10);
+    }
+    for (let i = 0; i < pl.length; i++) for (let j = i + 1; j < pl.length; j++) { const a = pl[i], b = pl[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, o = a.r + b.r - d; if (o > 0) { a.x -= dx / d * o / 2; a.y -= dy / d * o / 2; b.x += dx / d * o / 2; b.y += dy / d * o / 2; } }
+
+    const B = ball;
+    if (B.owner) { const o = B.owner, dir = o.team === 0 ? 1 : -1; B.x = o.x + 10 * dir; B.y = o.y + 4; B.z = Math.abs(Math.sin(g.t * 9)) * 10; if (Math.sin(g.t * 9) * Math.sin((g.t - dt) * 9) < 0 && g.frame % 2 === 0) g.sfx('tick'); }
+    else if (B.mode === 'pass') {
+      B.x += B.vx * dt; B.y += B.vy * dt; B.t += dt; B.z = 8;
+      for (const p of pl) {
+        if (p === B.from || dist(p, B) > 15) continue;
+        if (p.team !== B.from.team && g.chance(0.5)) { give(g, p); if (p.team === 0) { me = p; g.addScore(50, p.x, p.y - 26); g.floatText(p.x, p.y - 44, 'PICKED OFF!', '#fde047', 15); } break; }
+        if (p.team === B.from.team) { give(g, p); if (p.team === 0) g.addScore(5); break; }
+      }
+      if (!B.owner && (B.t > 1.4 || B.x < CT.l || B.x > CT.r || B.y < CT.t || B.y > CT.b)) { B.mode = 'loose'; B.vx *= 0.3; B.vy *= 0.3; }
+    } else if (B.mode === 'shot') {
+      const s = B.shot, h = hoopOf(s.team); s.t += dt / s.T; const k = Math.min(1, s.t);
+      B.x = g.lerp(s.sx, h.x, k); B.y = g.lerp(s.sy, h.y, k); B.z = 4 * s.h * k * (1 - k) + (s.dunk ? 14 * k : 20 * k);
+      if (k >= 1) {
+        if (s.make) { B.mode = 'loose'; B.vx = B.vy = 0; B.z = 0; B.x = h.x; B.y = h.y; made(g, s); }
+        else { B.mode = 'loose'; const a = g.rand(0, Math.PI * 2); B.vx = Math.cos(a) * g.rand(100, 200); B.vy = Math.sin(a) * g.rand(100, 200) + (s.team === 0 ? 120 : -120); B.z = 22; B.vz = 120; g.sfx('hit'); g.floatText(h.x, h.y - 26, 'CLANK', '#ffffffaa', 14); }
+      }
+    } else if (B.mode === 'loose' && phase !== 'score') {
+      B.vx *= Math.pow(0.35, dt); B.vy *= Math.pow(0.35, dt); B.x += B.vx * dt; B.y += B.vy * dt;
+      B.vz -= 600 * dt; B.z += B.vz * dt; if (B.z < 0) { B.z = 0; B.vz = Math.abs(B.vz) * 0.55; if (B.vz > 40) g.sfx('tick'); }
+      if (B.x < CT.l + 6 || B.x > CT.r - 6) B.vx *= -0.7; if (B.y < CT.t + 6 || B.y > CT.b - 6) B.vy *= -0.7;
+      B.x = g.clamp(B.x, CT.l + 6, CT.r - 6); B.y = g.clamp(B.y, CT.t + 6, CT.b - 6);
+      if (live && B.z < 16) for (const p of pl) if (p.stun <= 0 && dist(p, B) < 15) { give(g, p); if (p.team === 0) { me = p; g.floatText(p.x, p.y - 28, 'REBOUND', '#fff', 14); } break; }
+    }
+  },
+  draw(g, ctx) {
+    g.clear(CFG.arena);
+    if (!pl) return;
+    const W = CT.r - CT.l, H = CT.b - CT.t;
+    g.rect(CT.l - 8, CT.t - 8, W + 16, H + 16, '#1c130c', 10);
+    g.rect(CT.l, CT.t, W, H, g.grad(0, CT.t, 0, CT.b, [CFG.wood, CFG.woodDark, CFG.wood]));
+    ctx.fillStyle = 'rgba(0,0,0,.06)'; for (let x = CT.l + 14; x < CT.r; x += 16) ctx.fillRect(x, CT.t, 1.5, H);
+    ctx.strokeStyle = CFG.lines; ctx.lineWidth = 2.5; ctx.strokeRect(CT.l, CT.t, W, H);
+    ctx.beginPath(); ctx.moveTo(CT.l, 350); ctx.lineTo(CT.r, 350); ctx.stroke(); g.ring(180, 350, 40, CFG.lines, 2.5);
+    for (const [h, dir] of [[HT, 1], [HB, -1]]) {
+      const base = dir > 0 ? CT.t : CT.b, ft = h.y + dir * 104;
+      ctx.fillStyle = CFG.paint + 'cc'; ctx.fillRect(130, Math.min(base, ft), 100, Math.abs(ft - base)); ctx.strokeRect(130, Math.min(base, ft), 100, Math.abs(ft - base));
+      ctx.beginPath(); ctx.arc(180, ft, 32, dir > 0 ? 0 : Math.PI, dir > 0 ? Math.PI : Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(40, base); ctx.lineTo(40, h.y); ctx.arc(180, h.y, ARC, dir > 0 ? Math.PI : Math.PI, dir > 0 ? 0 : 0, dir > 0); ctx.lineTo(320, base); ctx.stroke();
+      g.rect(150, h.y - dir * 16 - 2, 60, 4, '#f8fafc', 2);
+      ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 1; ctx.beginPath(); for (let k = -2; k <= 2; k++) { ctx.moveTo(h.x + k * 4, h.y); ctx.lineTo(h.x + k * 2.6, h.y + dir * 12); } ctx.stroke();
+      g.ring(h.x, h.y, 10, '#ea580c', 3); ctx.strokeStyle = CFG.lines; ctx.lineWidth = 2.5;
+    }
+    const B = ball, list = [...pl].sort((a, b) => a.y - b.y);
+    g.circle(B.x, B.y + 2, 6 * (1 - Math.min(0.5, B.z / 120)), 'rgba(0,0,0,.25)');
+    for (const p of list) {
+      const col = p.team ? CFG.awayColor : CFG.homeColor, trim = p.team ? CFG.awayTrim : CFG.homeTrim, emo = p.team ? CFG.awayEmoji : CFG.homeEmoji, j = p.jump > 0 ? Math.sin((p.jump / 0.45) * Math.PI) * 10 : 0;
+      g.circle(p.x, p.y + 6, 12 - j * 0.3, 'rgba(0,0,0,.22)');
+      if (p === me && g.state === 'play') { g.ring(p.x, p.y, 18 + Math.sin(g.t * 8) * 1.5, CFG.accent, 3); ctx.fillStyle = CFG.accent; ctx.beginPath(); ctx.moveTo(p.x - 6, p.y - 30 - j); ctx.lineTo(p.x + 6, p.y - 30 - j); ctx.lineTo(p.x, p.y - 23 - j); ctx.fill(); }
+      const r = p.r * (1 + j / 40); g.circle(p.x, p.y - j, r, p.stun > 0 ? '#94a3b8' : col); g.ring(p.x, p.y - j, r, trim, 2);
+      if (emo) g.emoji(emo, p.x, p.y - j - 2, 24); else g.text(String(p.i + 1 + p.team * 3), p.x, p.y - j + 1, { size: 12, weight: 900, color: trim });
+    }
+    const bz = B.z, br = 6 + bz / 22;
+    g.circle(B.x, B.y - bz, br, '#ea580c'); ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(B.x, B.y - bz, br, 0, 6.283); ctx.moveTo(B.x - br, B.y - bz); ctx.lineTo(B.x + br, B.y - bz); ctx.moveTo(B.x, B.y - bz - br); ctx.lineTo(B.x, B.y - bz + br); ctx.stroke();
+    const mm = Math.floor(clock / 60), ss = String(Math.floor(clock % 60)).padStart(2, '0');
+    g.rect(96, 24, 168, 46, 'rgba(10,6,3,.9)', 12); g.rect(96, 24, 6, 46, CFG.homeColor, 3); g.rect(258, 24, 6, 46, CFG.awayColor, 3);
+    g.text(CFG.homeName + '  ' + pts[0], 142, 39, { size: 15, weight: 900, color: '#fff' }); g.text(pts[1] + '  ' + CFG.awayName, 218, 39, { size: 15, weight: 900, color: '#fff' });
+    g.text(mm + ':' + ss + '   ·   ⏱ ' + Math.ceil(shot) + '   ·   to ' + CFG.winScore, 180, 59, { size: 10.5, weight: 800, color: shot < 4 && ball.owner ? '#fca5a5' : '#ffffffcc' });
+    if (stick && g.state === 'play') { g.ring(stick.x, stick.y, 34, 'rgba(0,0,0,.3)', 2); g.circle(stick.x + g.clamp(g.input.x - stick.x, -34, 34), stick.y + g.clamp(g.input.y - stick.y, -34, 34), 13, 'rgba(0,0,0,.25)'); }
+  },
+};
+Kit.game(GAME);
+</script>
+</body>
+</html>
