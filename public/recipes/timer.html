@@ -1,0 +1,118 @@
+<!-- app: {"name":"Interval Timer","emoji":"⏱️","color":"#f43f5e","type":"app","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Interval Timer</title>
+<link rel="stylesheet" href="kit/ui.css">
+<script src="kit/app.js"></script>
+<style>
+.dial{position:relative;width:min(78vw,300px);aspect-ratio:1;margin:8px auto 4px}.dial svg{width:100%;height:100%;transform:rotate(-90deg)}
+.dial .mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.dial .phase{font-size:15px;font-weight:900;letter-spacing:.14em}.dial .time{font-size:64px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}.dial .round{color:var(--muted);font-weight:700;margin-top:4px}
+#arc{transition:stroke-dashoffset .25s linear,stroke .3s}
+.stepper{display:grid;grid-template-columns:46px 1fr 46px;gap:8px;align-items:center}.stepper output{text-align:center;font-weight:900;font-size:20px}
+body.work{--accent:var(--work)}body.rest{--accent:var(--rest)}
+.del{background:none;border:0;color:var(--muted);font-size:18px;min-width:44px;min-height:44px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar"><div class="title" id="title"></div><button class="btn icon ghost" id="sound" aria-label="Sound on or off">🔊</button></header>
+  <main class="content">
+    <section data-page="timer" class="stack">
+      <div class="dial"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="var(--surface-2)" stroke-width="10"/><circle id="arc" cx="60" cy="60" r="52" fill="none" stroke="var(--accent)" stroke-width="10" stroke-linecap="round"/></svg>
+        <div class="mid"><div class="phase" id="phase">READY</div><div class="time" id="time">0:00</div><div class="round" id="round"></div></div></div>
+      <div class="row"><button class="btn grow" id="reset">↺ Reset</button><button class="btn primary grow" id="go">▶ Start</button></div>
+      <div class="card col">
+        <div class="stepper"><button class="btn icon" data-k="work" data-d="-5" aria-label="Less work time">−</button><div class="center"><div class="label">Work</div><output id="o-work"></output></div><button class="btn icon" data-k="work" data-d="5" aria-label="More work time">＋</button></div>
+        <div class="stepper"><button class="btn icon" data-k="rest" data-d="-5" aria-label="Less rest time">−</button><div class="center"><div class="label">Rest</div><output id="o-rest"></output></div><button class="btn icon" data-k="rest" data-d="5" aria-label="More rest time">＋</button></div>
+        <div class="stepper"><button class="btn icon" data-k="rounds" data-d="-1" aria-label="Fewer rounds">−</button><div class="center"><div class="label">Rounds</div><output id="o-rounds"></output></div><button class="btn icon" data-k="rounds" data-d="1" aria-label="More rounds">＋</button></div>
+      </div>
+    </section>
+    <section data-page="presets" class="stack">
+      <form class="card col" id="saveForm"><div class="field"><label for="pName">Save the current settings</label><input class="input" id="pName" placeholder="e.g. Morning HIIT" maxlength="30" autocomplete="off"></div><button class="btn primary block" type="submit">💾 Save preset</button></form>
+      <div class="list" id="presets"></div>
+    </section>
+  </main>
+  <nav class="tabbar"><button data-tab="timer" class="active">⏱️<span>Timer</span></button><button data-tab="presets">⭐<span>Presets</span></button></nav>
+</div>
+<script>
+// TUNING — change these first: names, colors, default times, presets
+const CFG = {
+  "title": "Interval Timer",
+  "emoji": "⏱️",
+  "workColor": "#f43f5e",
+  "restColor": "#22c55e",
+  "accent2": "#f59e0b",
+  "light": false,
+  "work": 40,
+  "rest": 20,
+  "rounds": 8,
+  "countdownBeeps": 3,
+  "presets": [{ "name": "Tabata", "work": 20, "rest": 10, "rounds": 8 }, { "name": "Easy circuit", "work": 45, "rest": 30, "rounds": 6 }]
+};
+
+// APP
+const { $, $$, h, store, toast, confirm, haptic, fmt, uid } = Kit.app;
+const set = store('settings', { work: CFG.work, rest: CFG.rest, rounds: CFG.rounds, sound: true });
+const presets = store('presets', CFG.presets.map((p) => ({ id: uid(), ...p })));
+let run = null, timer = 0, actx = null;
+function beep(f, d, v) { if (!set.get().sound) return; try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = f; o.type = 'square'; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v || 0.2, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + d + 0.02); } catch (e) { /* no audio */ } }
+function draw() {
+  const s = set.get(), C = 2 * Math.PI * 52, arc = $('#arc');
+  ['work', 'rest', 'rounds'].forEach((k) => { $('#o-' + k).textContent = k === 'rounds' ? s[k] : fmt.duration(s[k]); });
+  $('#sound').textContent = s.sound ? '🔊' : '🔇';
+  arc.setAttribute('stroke-dasharray', C);
+  if (!run) { $('#phase').textContent = 'READY'; $('#time').textContent = fmt.duration(s.work); $('#round').textContent = s.rounds + ' rounds · ' + fmt.duration((s.work + s.rest) * s.rounds - s.rest) + ' total'; arc.setAttribute('stroke-dashoffset', 0); document.body.className = document.body.className.replace(/\b(work|rest)\b/g, ''); $('#go').textContent = '▶ Start'; return; }
+  const len = run.phase === 'work' ? s.work : s.rest;
+  $('#phase').textContent = run.phase === 'done' ? 'DONE! 🎉' : run.phase.toUpperCase(); $('#time').textContent = fmt.duration(Math.ceil(run.left));
+  $('#round').textContent = run.phase === 'done' ? 'Great work' : 'Round ' + run.round + ' of ' + s.rounds;
+  arc.setAttribute('stroke-dashoffset', run.phase === 'done' ? 0 : C * (1 - run.left / len));
+  document.body.classList.toggle('work', run.phase === 'work'); document.body.classList.toggle('rest', run.phase === 'rest');
+  $('#go').textContent = run.paused ? '▶ Resume' : run.phase === 'done' ? '▶ Again' : '⏸ Pause';
+}
+function tick() {
+  if (!run || run.paused || run.phase === 'done') return;
+  const s = set.get(), now = performance.now(), dt = (now - run.last) / 1000; run.last = now;
+  const before = Math.ceil(run.left); run.left -= dt; const after = Math.ceil(run.left);
+  if (after !== before && after <= CFG.countdownBeeps && after > 0) beep(880, 0.08, 0.15);
+  if (run.left <= 0) {
+    if (run.phase === 'work' && run.round >= s.rounds) { run.phase = 'done'; beep(523, 0.15); setTimeout(() => beep(784, 0.3), 160); haptic(300); toast('Workout complete! 💪'); }
+    else if (run.phase === 'work' && s.rest > 0) { run.phase = 'rest'; run.left = s.rest; beep(440, 0.4); haptic(150); }
+    else { run.phase = 'work'; run.round++; run.left = s.work; beep(1046, 0.4); haptic([100, 60, 100]); }
+  }
+  draw();
+}
+$('#go').addEventListener('click', () => {
+  if (!run || run.phase === 'done') { run = { phase: 'work', round: 1, left: set.get().work, last: performance.now(), paused: false }; beep(1046, 0.3); haptic(60); clearInterval(timer); timer = setInterval(tick, 100); }
+  else { run.paused = !run.paused; run.last = performance.now(); }
+  draw();
+});
+$('#reset').addEventListener('click', () => { run = null; clearInterval(timer); haptic(10); toast('Timer reset'); draw(); });
+$('#sound').addEventListener('click', () => { set.update((s) => { s.sound = !s.sound; }); draw(); });
+$$('[data-k]').forEach((b) => b.addEventListener('click', () => {
+  const k = b.dataset.k, d = Number(b.dataset.d), lim = k === 'rounds' ? [1, 50] : k === 'rest' ? [0, 1800] : [5, 3600];
+  set.update((s) => { s[k] = Math.max(lim[0], Math.min(lim[1], s[k] + d)); }); haptic(6); if (!run) draw(); else draw();
+}));
+function renderPresets() {
+  const box = $('#presets'); box.innerHTML = ''; const list = presets.get();
+  if (!list.length) box.appendChild(h('div', { class: 'empty' }, 'No presets yet.'));
+  for (const p of list) box.appendChild(h('div', { class: 'item', 'data-id': p.id },
+    h('div', { class: 'avatar' }, '⭐'), h('div', { class: 'main' }, h('b', null, p.name), h('small', null, fmt.duration(p.work) + ' work · ' + fmt.duration(p.rest) + ' rest · ' + p.rounds + ' rounds')),
+    h('button', { class: 'btn sm', onclick: () => { set.update((s) => Object.assign(s, { work: p.work, rest: p.rest, rounds: p.rounds })); run = null; clearInterval(timer); draw(); Kit.app.showTab('timer'); toast('Loaded ' + p.name); } }, 'Use'),
+    h('button', { class: 'del', 'aria-label': 'Delete preset ' + p.name, onclick: async () => { if (await confirm('Delete preset "' + p.name + '"?', 'Delete')) { presets.update((l) => l.filter((x) => x.id !== p.id)); renderPresets(); } } }, '🗑')));
+}
+$('#saveForm').addEventListener('submit', (e) => {
+  e.preventDefault(); const name = $('#pName').value.trim(); if (!name) { toast('Name your preset'); $('#pName').focus(); return; }
+  const s = set.get(); presets.update((l) => { l.unshift({ id: uid(), name, work: s.work, rest: s.rest, rounds: s.rounds }); }); $('#pName').value = ''; toast('Saved “' + name + '”'); renderPresets();
+});
+document.title = CFG.title; $('#title').textContent = CFG.emoji + ' ' + CFG.title;
+const R = document.documentElement.style; R.setProperty('--work', CFG.workColor); R.setProperty('--rest', CFG.restColor); R.setProperty('--accent', CFG.workColor); R.setProperty('--accent-2', CFG.accent2);
+document.body.classList.toggle('light', !!CFG.light);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && run) tick(); });
+draw(); renderPresets();
+</script>
+</body>
+</html>

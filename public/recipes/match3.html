@@ -1,0 +1,225 @@
+<!-- app: {"name":"Gem Match","emoji":"💎","color":"#c084fc","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Gem Match</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: names, colors, emoji, speeds, difficulty
+const CFG = {
+  "title": "Gem Match",
+  "emoji": "💎",
+  "help": "Swipe a gem to swap it. Match 3 or more. Reach the target before you run out of moves!",
+  "accent": "#c084fc",
+  "bgTop": "#1a0b2e",
+  "bgBottom": "#3b0764",
+  "boardColor": "#ffffff12",
+  "gemColors": ["#f43f5e", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#e2e8f0"],
+  "useEmoji": false,
+  "gemEmoji": ["🍓", "🍊", "🍏", "🫐", "🍇", "🥥"],
+  "music": "chill",
+  "cols": 7,
+  "rows": 8,
+  "moves": 20,
+  "target": 1200,
+  "targetGrowth": 1.5,
+  "bonusMoves": 8,
+  "pointsPerGem": 10
+};
+
+// GAME
+const COLS = CFG.cols, ROWS = CFG.rows, KINDS = Math.max(4, Math.min(6, CFG.gemColors.length));
+const S = Math.min(48, 344 / COLS, 380 / ROWS), BX = (360 - S * COLS) / 2, BY = 150;
+let grid, state, press, tapSel, moves, target, cascade, swapCells, beams, idleT, hint;
+
+const kindAt = (r, c) => { const q = grid[r] && grid[r][c]; return q && !q.pop ? q.k : -9; };
+const gem = (k, x, y) => ({ k, sp: null, x, y, pop: 0, used: 0 });
+function fill(g) { grid = []; for (let r = 0; r < ROWS; r++) { grid.push([]); for (let c = 0; c < COLS; c++) grid[r].push(null); } for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) grid[r][c] = gem(g.randi(0, KINDS - 1), c, r - ROWS - 1); }
+
+function runs() {
+  const out = [];
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS;) { const k = kindAt(r, c); let e = c + 1; while (k >= 0 && e < COLS && kindAt(r, e) === k) e++; if (k >= 0 && e - c >= 3) out.push({ dir: 'h', cells: Array.from({ length: e - c }, (_, i) => [r, c + i]) }); c = e; }
+  for (let c = 0; c < COLS; c++) for (let r = 0; r < ROWS;) { const k = kindAt(r, c); let e = r + 1; while (k >= 0 && e < ROWS && kindAt(e, c) === k) e++; if (k >= 0 && e - r >= 3) out.push({ dir: 'v', cells: Array.from({ length: e - r }, (_, i) => [r + i, c]) }); r = e; }
+  return out;
+}
+function findMove() {
+  const K = grid.map((row) => row.map((q) => (q ? (q.sp === 'bomb' ? -1 : q.k) : -9)));
+  const line = (r, c) => { const k = K[r][c]; if (k < 0) return false; let h = 1, v = 1;
+    for (let i = c - 1; i >= 0 && K[r][i] === k; i--) h++; for (let i = c + 1; i < COLS && K[r][i] === k; i++) h++;
+    for (let i = r - 1; i >= 0 && K[i][c] === k; i--) v++; for (let i = r + 1; i < ROWS && K[i][c] === k; i++) v++; return h >= 3 || v >= 3; };
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (K[r][c] === -1) return [r, c, r, Math.min(COLS - 1, c + 1)];
+    for (const [r2, c2] of [[r, c + 1], [r + 1, c]]) {
+      if (r2 >= ROWS || c2 >= COLS) continue;
+      [K[r][c], K[r2][c2]] = [K[r2][c2], K[r][c]]; const ok = line(r, c) || line(r2, c2); [K[r][c], K[r2][c2]] = [K[r2][c2], K[r][c]];
+      if (ok) return [r, c, r2, c2];
+    }
+  }
+  return null;
+}
+
+function clear(g, list, at) {
+  const set = new Map(), makes = []; const key = (r, c) => r * COLS + c;
+  for (const run of list) {
+    run.cells.forEach(([r, c]) => set.set(key(r, c), [r, c]));
+    if (run.cells.length >= 4 && run.dir !== 'x') {
+      const p = run.cells.find(([r, c]) => at && at.some(([a, b]) => a === r && b === c)) || run.cells[Math.floor(run.cells.length / 2)];
+      if (!makes.some((m) => m.r === p[0] && m.c === p[1])) makes.push({ r: p[0], c: p[1], k: grid[p[0]][p[1]].k, sp: run.cells.length >= 5 ? 'bomb' : run.dir });
+    }
+  }
+  const queue = [...set.values()];
+  while (queue.length) {
+    const [r, c] = queue.pop(), q = grid[r][c]; if (!q || !q.sp || q.used) continue; q.used = 1; let extra = [];
+    if (q.sp === 'h') { extra = Array.from({ length: COLS }, (_, i) => [r, i]); beams.push({ r, t: 0.35 }); g.sfx('shoot'); }
+    else if (q.sp === 'v') { extra = Array.from({ length: ROWS }, (_, i) => [i, c]); beams.push({ c, t: 0.35 }); g.sfx('shoot'); }
+    else { const k = q.target != null ? q.target : g.randi(0, KINDS - 1); for (let a = 0; a < ROWS; a++) for (let b = 0; b < COLS; b++) if (grid[a][b] && (k === 'all' || grid[a][b].k === k)) extra.push([a, b]); g.sfx('explode'); g.shake(10); g.flash('#fff', 0.3); }
+    for (const e of extra) if (!set.has(key(e[0], e[1]))) { set.set(key(e[0], e[1]), e); queue.push(e); }
+  }
+  for (const m of makes) set.delete(key(m.r, m.c));
+  let n = 0, sx = 0, sy = 0;
+  for (const [r, c] of set.values()) {
+    const q = grid[r][c]; if (!q) continue; q.pop = 0.001; n++; sx += c; sy += r;
+    g.particles(BX + (c + 0.5) * S, BY + (r + 0.5) * S, { color: [q.k >= 0 ? CFG.gemColors[q.k] : '#fff', '#fff'], n: 5, speed: 140 });
+  }
+  for (const m of makes) { const q = grid[m.r][m.c]; q.sp = m.sp; q.k = m.sp === 'bomb' ? -1 : m.k; q.used = 0; g.sfx('power'); g.floatText(BX + (m.c + 0.5) * S, BY + m.r * S, m.sp === 'bomb' ? 'RAINBOW!' : 'LINE!', '#fff', 18); }
+  if (n) { const pts = n * CFG.pointsPerGem * cascade; g.addScore(pts, BX + (sx / n + 0.5) * S, BY + (sy / n + 0.5) * S); g.sfx(cascade > 1 ? 'combo' : 'pop'); }
+  if (cascade >= 2) g.floatText(180, BY - 18, 'CASCADE x' + cascade, CFG.accent, 22);
+  state = 'pop';
+}
+function gravity(g) {
+  for (let c = 0; c < COLS; c++) {
+    let w = ROWS - 1;
+    for (let r = ROWS - 1; r >= 0; r--) if (grid[r][c]) { if (r !== w) { grid[w][c] = grid[r][c]; grid[r][c] = null; } w--; }
+    for (let r = w; r >= 0; r--) grid[r][c] = gem(g.randi(0, KINDS - 1), c, r - w - 1);
+  }
+  state = 'fall';
+}
+function endTurn(g) {
+  state = 'idle'; idleT = 0; hint = null;
+  if (g.score >= target) {
+    g.level++; moves += CFG.bonusMoves; target = Math.round(target + CFG.target * Math.pow(CFG.targetGrowth, g.level - 1));
+    g.banner('LEVEL ' + g.level, '+' + CFG.bonusMoves + ' moves'); g.sfx('win'); g.flash(CFG.accent, 0.3);
+  }
+  if (moves <= 0) { g.over(); return; }
+  if (!findMove()) {
+    g.banner('Shuffle!'); const ks = []; grid.forEach((row) => row.forEach((q) => { if (q) ks.push(q.k); }));
+    for (let n = 0; n < 60; n++) { ks.sort(() => Math.random() - 0.5); let i = 0; grid.forEach((row) => row.forEach((q) => { if (q) { q.k = ks[i++]; q.y -= 0.6; } })); if (!runs().length && findMove()) break; }
+    state = 'fall';
+  }
+}
+function trySwap(g, a, b) {
+  if (state !== 'idle' || !b || Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) !== 1) return;
+  const A = grid[a[0]][a[1]], B = grid[b[0]][b[1]]; if (!A || !B) return;
+  grid[a[0]][a[1]] = B; grid[b[0]][b[1]] = A; swapCells = [a, b]; state = 'swap'; tapSel = null; hint = null; g.sfx('click');
+}
+function cellAt(x, y) { const c = Math.floor((x - BX) / S), r = Math.floor((y - BY) / S); return r >= 0 && r < ROWS && c >= 0 && c < COLS ? [r, c] : null; }
+
+function shape(ctx, k, x, y, r) {
+  ctx.beginPath();
+  if (k === 0) ctx.arc(x, y, r, 0, 6.283);
+  else if (k === 1) { ctx.moveTo(x, y - r * 1.12); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r * 1.12); ctx.lineTo(x - r, y); ctx.closePath(); }
+  else if (k === 2) { if (ctx.roundRect) ctx.roundRect(x - r * 0.88, y - r * 0.88, r * 1.76, r * 1.76, r * 0.38); else ctx.rect(x - r * 0.88, y - r * 0.88, r * 1.76, r * 1.76); }
+  else if (k === 3) { ctx.moveTo(x, y - r * 1.05); ctx.lineTo(x + r * 1.08, y + r * 0.82); ctx.lineTo(x - r * 1.08, y + r * 0.82); ctx.closePath(); }
+  else if (k === 4) { for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; ctx[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.closePath(); }
+  else { for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.52 : r * 1.12; ctx[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); }
+}
+function drawGem(g, ctx, q, x, y, sc) {
+  const r = S * 0.37 * sc;
+  if (q.sp === 'bomb') {
+    CFG.gemColors.slice(0, KINDS).forEach((col, i) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r * 1.05, g.t * 2 + i * 6.283 / KINDS, g.t * 2 + (i + 1) * 6.283 / KINDS); ctx.fill(); });
+    g.circle(x, y, r * 0.45, '#fff'); g.ring(x, y, r * 1.05, 'rgba(255,255,255,.8)', 2); return;
+  }
+  if (CFG.useEmoji) g.emoji(CFG.gemEmoji[q.k % CFG.gemEmoji.length], x, y, S * 0.78 * sc);
+  else {
+    shape(ctx, q.k, x, y, r); ctx.fillStyle = CFG.gemColors[q.k]; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.stroke();
+    ctx.save(); ctx.clip(); ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.beginPath(); ctx.arc(x - r * 0.35, y - r * 0.45, r * 0.9, 0, 6.283); ctx.fill(); ctx.restore();
+    g.circle(x - r * 0.35, y - r * 0.4, r * 0.16, 'rgba(255,255,255,.9)');
+  }
+  if (q.sp === 'h' || q.sp === 'v') { ctx.save(); ctx.translate(x, y); if (q.sp === 'v') ctx.rotate(Math.PI / 2); for (const o of [-0.35, 0.35]) g.rect(-r * 1.05, o * r - 2, r * 2.1, 4, 'rgba(255,255,255,.9)', 2); ctx.restore(); }
+}
+
+Kit.game({
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.bgTop, music: CFG.music, formatScore: true, overEmoji: '💔', overText: 'Out of moves',
+  init(g) { fill(g); state = 'fall'; press = null; tapSel = null; moves = CFG.moves; target = CFG.target; cascade = 1; swapCells = null; beams = []; idleT = 0; hint = null; },
+  update(g, dt) {
+    const inp = g.input;
+    for (let i = beams.length - 1; i >= 0; i--) { beams[i].t -= dt; if (beams[i].t <= 0) beams.splice(i, 1); }
+    if (inp.pressed) {
+      const p = cellAt(inp.x, inp.y);
+      if (p && tapSel && Math.abs(p[0] - tapSel[0]) + Math.abs(p[1] - tapSel[1]) === 1) { trySwap(g, tapSel, p); press = null; }
+      else press = p ? { cell: p, x: inp.x, y: inp.y } : null;
+    }
+    if (press && inp.down && state === 'idle') {
+      const dx = inp.x - press.x, dy = inp.y - press.y;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) > S * 0.35) {
+        const [r, c] = press.cell, b = Math.abs(dx) > Math.abs(dy) ? [r, c + Math.sign(dx)] : [r + Math.sign(dy), c];
+        press = null; if (b[0] >= 0 && b[0] < ROWS && b[1] >= 0 && b[1] < COLS) trySwap(g, [r, c], b);
+      }
+    }
+    if (inp.released && press) { tapSel = tapSel && tapSel[0] === press.cell[0] && tapSel[1] === press.cell[1] ? null : press.cell; press = null; if (tapSel) g.sfx('tick'); }
+
+    let moving = false; const v = (state === 'swap' || state === 'revert' ? 7 : 12) * dt;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const q = grid[r][c]; if (!q) continue;
+      if (q.x !== c) { q.x += g.clamp(c - q.x, -v, v); moving = true; }
+      if (q.y !== r) { q.y += g.clamp(r - q.y, -v, v); moving = true; }
+    }
+    if (state === 'pop') {
+      let left = false;
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) { const q = grid[r][c]; if (q && q.pop) { q.pop += dt * 6; if (q.pop >= 1) grid[r][c] = null; else left = true; } }
+      if (!left) gravity(g);
+      return;
+    }
+    if (moving) return;
+    if (state === 'swap') {
+      const [a, b] = swapCells, A = grid[a[0]][a[1]], B = grid[b[0]][b[1]];
+      if (A.sp === 'bomb' || B.sp === 'bomb') {
+        const bomb = A.sp === 'bomb' ? a : b, other = A.sp === 'bomb' ? B : A;
+        grid[bomb[0]][bomb[1]].target = other.sp === 'bomb' ? 'all' : other.k; moves--; cascade = 1;
+        clear(g, [{ dir: 'x', cells: [bomb] }], swapCells); return;
+      }
+      const found = runs();
+      if (found.length) { moves--; cascade = 1; clear(g, found, swapCells); }
+      else { grid[a[0]][a[1]] = B; grid[b[0]][b[1]] = A; state = 'revert'; g.sfx('hit'); }
+    } else if (state === 'revert') { state = 'idle'; }
+    else if (state === 'fall') {
+      const found = runs();
+      if (found.length) { cascade++; clear(g, found, null); } else endTurn(g);
+    } else if (state === 'idle') {
+      idleT += dt; if (idleT > 6 && !hint) hint = findMove();
+    }
+  },
+  draw(g, ctx) {
+    g.backdrop('bokeh', { colors: [CFG.bgTop, CFG.bgBottom], tint: CFG.gemColors, speed: 0.4, alpha: 0.35 });
+    if (!grid) return;
+    g.rect(BX - 8, BY - 8, S * COLS + 16, S * ROWS + 16, CFG.boardColor, 16);
+    ctx.fillStyle = 'rgba(255,255,255,.05)';
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if ((r + c) % 2) ctx.fillRect(BX + c * S, BY + r * S, S, S);
+    if (state && g.state !== 'menu') {
+      g.text(String(moves), 52, 112, { size: 32, weight: 900, color: moves <= 5 ? '#fca5a5' : '#fff' }); g.text('MOVES', 52, 138, { size: 11, color: '#ffffffaa' });
+      const prog = Math.min(1, g.score / target);
+      g.rect(102, 104, 166, 14, 'rgba(255,255,255,.14)', 7); g.rect(102, 104, Math.max(14, 166 * prog), 14, CFG.accent, 7);
+      g.text('TARGET ' + g.fmt(target), 185, 134, { size: 12, color: '#ffffffcc' });
+      g.text('LV ' + g.level, 316, 118, { size: 20, weight: 900, color: CFG.accent });
+    }
+    ctx.save(); ctx.beginPath(); ctx.rect(BX - 8, BY - 8, S * COLS + 16, S * ROWS + 16); ctx.clip();
+    if (tapSel) { const pul = 1 + Math.sin(g.t * 8) * 0.04; g.rect(BX + tapSel[1] * S + 2, BY + tapSel[0] * S + 2, S - 4, S - 4, 'rgba(255,255,255,.22)', 10); g.ring(BX + (tapSel[1] + 0.5) * S, BY + (tapSel[0] + 0.5) * S, S * 0.47 * pul, '#fff', 2); }
+    if (hint) for (const [r, c] of [[hint[0], hint[1]], [hint[2], hint[3]]]) g.ring(BX + (c + 0.5) * S, BY + (r + 0.5) * S, S * (0.42 + Math.sin(g.t * 6) * 0.05), '#ffffffaa', 2);
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const q = grid[r][c]; if (!q) continue;
+      const sc = q.pop ? 1 - q.pop : 1 + (q.sp ? Math.sin(g.t * 5) * 0.05 : 0);
+      drawGem(g, ctx, q, BX + (q.x + 0.5) * S, BY + (q.y + 0.5) * S, Math.max(0.01, sc));
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    for (const b of beams) { const a = b.t / 0.35; if (b.r != null) g.rect(BX, BY + b.r * S + S * 0.2, S * COLS, S * 0.6, 'rgba(255,255,255,' + (a * 0.6).toFixed(2) + ')', 8); else g.rect(BX + b.c * S + S * 0.2, BY, S * 0.6, S * ROWS, 'rgba(255,255,255,' + (a * 0.6).toFixed(2) + ')', 8); }
+    ctx.globalCompositeOperation = 'source-over'; ctx.restore();
+    g.text('Match 4 → line gem   ·   Match 5 → rainbow gem', 180, BY + S * ROWS + 34, { size: 12, color: '#ffffff99', weight: 700 });
+  },
+});
+</script>
+</body>
+</html>

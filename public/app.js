@@ -12,30 +12,20 @@
   const today = () => new Date().toISOString().slice(0, 10);
   const ROLE = { pm: ['🧭', 'PM'], architect: ['📐', 'Architect'], coder: ['👨‍💻', 'Coder'], qa: ['🧪', 'QA'], debugger: ['🩺', 'Debugger'], critic: ['🎯', 'Critic'], auto: ['🤖', 'Autopilot'], you: ['🙋', 'You'] };
 
+  /* Starters: recipes are finished, tested builds (0 tokens as-is); the rest are written by the AI from the prompt. */
   const TEMPLATES = [
-    { type: 'game', e: '🚀', t: 'Space Blaster', p: 'Vertical space shooter: drag to steer the ship, auto-fire lasers, waves of enemy formations, power-ups (spread shot, shield), a boss every 5th wave, neon-on-black style with a parallax starfield.' },
-    { type: 'game', e: '🧟', t: 'Zombie Survival', p: '2D top-down zombie survival: virtual-stick movement with auto-aim shooting, enemy waves that grow, health and pickups, upgrade choice between waves, and a boss fight every 5th wave.' },
-    { type: 'game', e: '🏃', t: 'Neon Runner', p: 'One-tap endless runner: tap to jump (double-tap for double jump), obstacles and gaps, coins, speed ramps up, parallax synthwave city, combo multiplier for coin streaks.' },
-    { type: 'game', e: '💎', t: 'Gem Match', p: 'Match-3 puzzle on a 7x9 gem grid: swipe to swap adjacent gems, 3+ in a row clear with cascades, special gems for 4 and 5 matches, 60-second timer, combo multiplier, sparkly clears.' },
-    { type: 'game', e: '🐍', t: 'Snake Arena', p: 'Modern snake: swipe or arrow keys to turn, grow by eating glowing orbs, golden orbs give bonus points, walls wrap around, speed up every 5 orbs, smooth movement and a glowing trail.' },
-    { type: 'game', e: '🧱', t: 'Brick Smash', p: 'Brick breaker: drag the paddle, the ball shatters colorful bricks with particles, power-ups drop (multi-ball, wide paddle, laser), 3 lives, a new layout each level.' },
-    { type: 'game', e: '🎣', t: 'Lunker Rush', p: 'Fishing game: swipe up to cast, wait for a bite, then hold to reel and release to keep the tension meter in the green zone. 12 Michigan fish species with rarity tiers and weights, a collection log, and best catch.' },
-    { type: 'game', e: '💰', t: 'Idle Tycoon', p: 'Idle clicker tycoon: tap to earn cash, buy upgrades and auto-earners with escalating costs, big satisfying numbers with K/M/B suffixes, offline earnings, prestige reset for a permanent multiplier.' },
+    ...Recipes.list.map((r) => ({ type: r.type, e: r.emoji, t: r.name, p: r.prompt, r: r.id })),
     { type: 'game', e: '🏒', t: 'Air Hockey', p: 'Air hockey vs an AI: drag your mallet in the bottom half, physics puck with wall bounces, the AI defends and attacks, first to 7 wins (g.win when the player wins, g.over when the AI wins), goal celebration effects.' },
-    { type: 'app', e: '✅', t: 'Habit Streaks', p: 'Habit tracker: add habits with an emoji, tap to check off today, streak counter and a 7-day dot history per habit, a stats tab with completion rate, celebration effect on streak milestones.' },
-    { type: 'app', e: '💸', t: 'Budget Buddy', p: 'Expense tracker: quick-add amount with category chips, monthly budget with a progress bar, list grouped by day, category breakdown bars, edit and delete entries.' },
-    { type: 'app', e: '⏱️', t: 'Interval Timer', p: 'Workout interval timer: set work/rest seconds and rounds, a big animated ring countdown, beeps and vibration on transitions, saved presets.' },
     { type: 'app', e: '🧮', t: 'Job Estimator', p: 'Landscaping job estimator: cubic yards of mulch, gravel or topsoil from length, width and depth (inches), price per yard and delivery fee, labor hours × rate, totals with tax; save quotes with a client name and share as text.' },
-    { type: 'app', e: '📝', t: 'Quick Notes', p: 'Notes app: fast capture box, pin notes, color tags, search, delete with confirm, everything saved locally.' },
     { type: 'app', e: '🎡', t: 'Decision Wheel', p: 'Decision spinner: editable list of options, a big colorful wheel that spins with easing and a ticking sound, winner celebration, saved wheels.' },
     { type: 'app', e: '🔊', t: 'Soundboard', p: 'Soundboard with 12 big colorful pads, each plays a different synthesized sound (WebAudio, no files), record and play back a sequence, haptic feedback.' },
   ];
   const CHIPS = {
-    game: ['🎯 Get feedback', '🐞 Fix bugs', '🎮 Playtest', '✨ Polish the visuals', '🔥 Make it harder over time', '⚡ Add power-ups', '🔊 More sound & juice', '🏆 Add levels', '🎨 New color theme'],
-    app: ['🎯 Get feedback', '🐞 Fix bugs', '🎮 Playtest', '✨ Polish the design', '🌗 Add light/dark toggle', '📊 Add a stats screen', '🔍 Add search', '📤 Add share/export', '🎉 Add delight animations'],
+    game: ['🎛 Tune (0 tokens)', '🎯 Get feedback', '🐞 Fix bugs', '🎮 Playtest', '✨ Polish the visuals', '🔥 Make it harder over time', '⚡ Add power-ups', '🔊 More sound & juice', '🏆 Add levels', '🎨 New color theme'],
+    app: ['🎛 Tune (0 tokens)', '🎯 Get feedback', '🐞 Fix bugs', '🎮 Playtest', '✨ Polish the design', '🌗 Add light/dark toggle', '📊 Add a stats screen', '🔍 Add search', '📤 Add share/export', '🎉 Add delight animations'],
   };
   const MODE_HINTS = {
-    quick: 'Builds straight away in one pass. Fewest tokens. Tests still run (free) but nothing is auto-fixed.',
+    quick: 'Builds straight away in one pass. Fewest tokens: if a starter fits your idea it only gets re-themed. Tests still run (free) but nothing is auto-fixed.',
     smart: 'Architect plans → approve (Autopilot does it for you) → Coder builds → QA tests → Debugger fixes → bot playtests → Critic reviews → Autopilot applies the best ideas.',
     quality: 'Like Smart, but built step by step with tests after every step, plus a check of every planned feature.',
   };
@@ -176,7 +166,7 @@
   // ---------- home ----------
   function renderTemplates() {
     $('#templates').innerHTML = TEMPLATES.filter((t) => t.type === S.type).map((t) =>
-      `<button class="tpl" data-act="tpl" data-p="${esc(t.p)}"><span class="e">${t.e}</span><span><b>${esc(t.t)}</b><small>${esc(t.p)}</small></span></button>`).join('');
+      `<button class="tpl" data-act="tpl" data-p="${esc(t.p)}"><span class="e">${t.e}</span><span><b>${esc(t.t)}${t.r ? ' <em class="tpl-badge" title="A finished, tested starter. Build it as-is for 0 tokens, or edit the text and the AI only customizes it.">⚡ 0 tokens</em>' : ''}</b><small>${esc(t.p)}</small></span></button>`).join('');
   }
   function projIcon(p) {
     const bg = `linear-gradient(135deg, ${esc(p.color || '#7c5cff')}, #0b0f1a)`;
@@ -285,10 +275,13 @@
     const p = m.plan; const pending = m.status === 'pending';
     const head = `<div class="job-head"><span>📐</span><b>${pending ? 'Plan — review &amp; approve' : m.status === 'approved' ? 'Plan approved' : 'Plan ' + m.status}</b><span class="pill">${esc(p.complexity)}</span></div>`;
     if (!pending) {
-      return `<div class="msg ai plan done">${head}<div class="jres"><b>${esc(p.emoji)} ${esc(p.name)}</b> — ${esc(p.pitch)}</div><details><summary>Plan details</summary><pre>${esc(Engine.planText(p))}${p.tasks.length ? '\nSteps:\n' + p.tasks.map((t, k) => k + 1 + '. ' + t).join('\n') : ''}</pre></details></div>`;
+      const rs = Recipes.get(p.starter);
+      return `<div class="msg ai plan done">${head}<div class="jres"><b>${esc(p.emoji)} ${esc(p.name)}</b> — ${esc(p.pitch)}${rs ? `<br><span class="muted">Started from the ${esc(rs.emoji + ' ' + rs.name)} starter</span>` : ''}</div><details><summary>Plan details</summary><pre>${esc(Engine.planText(p))}${p.tasks.length ? '\nSteps:\n' + p.tasks.map((t, k) => k + 1 + '. ' + t).join('\n') : ''}</pre></details></div>`;
     }
-    const est = Engine.EST_OUT[p.complexity] || 5000; const coder = roleModel('coder');
-    const eta = estimate(coder, est, 2200);
+    const rec = Recipes.get(p.starter); const full = Engine.EST_OUT[p.complexity] || 5000;
+    const est = rec ? Engine.EST_OUT.starter : full; const coder = roleModel('coder');
+    const eta = estimate(coder, est, rec ? 4500 : 2200);
+    const kinds = Recipes.list.filter((x) => x.type === (p.kind || 'game'));
     const qs = p.questions.map((q, k) => `<div class="pq"><div class="pq-q">${esc(q.q)}</div><div class="pq-o">${q.options.map((o) => `<button type="button" class="chipb ${q.answer === o ? 'on' : ''}" data-act="plan-ans" data-i="${i}" data-k="${k}" data-v="${esc(o)}">${esc(o)}</button>`).join('')}
       <input class="inp sm" data-pf="q${k}" placeholder="or type your own" value="${q.options.includes(q.answer) ? '' : esc(q.answer)}"></div></div>`).join('');
     return `<div class="msg ai plan" data-plan="${i}">${head}
@@ -298,7 +291,8 @@
       <div class="pf-label">Features (one per line)</div><textarea class="inp" data-pf="features" rows="${Math.min(8, p.features.length + 1)}">${esc(p.features.join('\n'))}</textarea>
       <div class="two"><div><div class="pf-label">Controls</div><input class="inp" data-pf="controls" value="${esc(p.controls)}"></div><div><div class="pf-label">Look</div><input class="inp" data-pf="look" value="${esc(p.look)}"></div></div>
       <div class="pf-label">Build steps</div><textarea class="inp" data-pf="tasks" rows="${Math.min(6, p.tasks.length + 1)}">${esc(p.tasks.join('\n'))}</textarea>
-      <div class="pf-est">≈ ${fmtTok(est)} output tokens${eta ? ' · ' + esc(eta) : ' · speed is measured after your first run'}${S.mode === 'quality' && p.tasks.length > 1 ? ` · built in ${p.tasks.length} steps with tests between` : ''}</div>
+      <div class="pf-label">Start from</div><select class="inp" data-pf="starter" data-i="${i}"><option value="">✍️ Nothing — write it from scratch (~${fmtTok(full)} tokens)</option>${kinds.map((x) => `<option value="${x.id}" ${x.id === p.starter ? 'selected' : ''}>${x.emoji} ${esc(x.name)} starter — re-theme + adjust (~${fmtTok(Engine.EST_OUT.starter)} tokens)</option>`).join('')}</select>
+      <div class="pf-est">≈ ${fmtTok(est)} output tokens${rec ? ` · ${Math.round((1 - est / full) * 100)}% fewer than from scratch` : ''}${eta ? ' · ' + esc(eta) : ' · speed is measured after your first run'}${S.mode === 'quality' && p.tasks.length > 1 && !rec ? ` · built in ${p.tasks.length} steps with tests between` : ''}</div>
       ${S.settings.autopilot !== false && S.settings.autoApproveSecs > 0 ? `<div class="autobar" id="autobar-${i}">${m.paused ? '⏸ Autopilot paused — approve when you’re ready.' : `🤖 Autopilot approves in <b>${S.cd && S.cd.i === i ? S.cd.left : S.settings.autoApproveSecs}</b>s with the recommended answers <button class="btn sm ghost" data-act="plan-pause" data-i="${i}">Pause</button>`}</div>` : ''}
       <div class="jacts"><button class="btn primary" data-act="plan-approve" data-i="${i}">✅ Approve &amp; build</button><button class="btn" data-act="plan-redo" data-i="${i}">↻ New plan</button><button class="btn ghost" data-act="plan-cancel" data-i="${i}">Cancel</button></div></div>`;
   }
@@ -308,7 +302,7 @@
     p.emoji = v('emoji') || p.emoji; p.name = v('name') || p.name; p.pitch = v('pitch');
     p.features = v('features').split('\n').map((x) => x.replace(/^[-•*\d.)\s]+/, '').trim()).filter(Boolean);
     p.tasks = v('tasks').split('\n').map((x) => x.replace(/^[-•*\d.)\s]+/, '').trim()).filter(Boolean);
-    p.controls = v('controls'); p.look = v('look');
+    p.controls = v('controls'); p.look = v('look'); p.starter = v('starter');
     p.questions.forEach((q, k) => { const own = v('q' + k); if (own) q.answer = own; });
     return p;
   }
@@ -362,6 +356,107 @@
     if (!b) setTimeout(startCountdown, 0);
   }
 
+  // ---------- Tuner: change the CFG block with sliders and pickers — no AI, 0 tokens ----------
+  function cfgOf(files) { for (const p of Engine.contextFiles(files)) { const f = Recipes.findCfg(files[p]); if (f) return { path: p, cfg: f.obj }; } return null; }
+  const isHex = (v) => typeof v === 'string' && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(v);
+  const humanKey = (k) => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
+  function hueShift(hex, deg) {
+    const n = parseInt(hex.slice(1, 7), 16); let r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn; let h = 0, s2 = 0;
+    if (d) { s2 = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn); h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; }
+    h = (h + deg + 360) % 360; const c = (1 - Math.abs(2 * l - 1)) * s2, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+    [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+    return '#' + [r, g, b].map((v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')).join('') + hex.slice(7);
+  }
+  async function openTuner() {
+    if (!S.p || !S.n) return toast('Build something first');
+    if (S.busy) return toast('Wait for the current job to finish');
+    const found = cfgOf(S.files);
+    if (!found) { toast('No tuning block in this project yet. Ask in chat: “Move every tunable value into a CFG block at the top”', '', 5600); return; }
+    const base = found.cfg; let cur = JSON.parse(JSON.stringify(base));
+    const rec = Recipes.get(S.p.recipe || ''); let defaults = null;
+    if (rec) { try { const f = Recipes.findCfg(await (await fetch('recipes/' + rec.id + '.html')).text()); defaults = f && f.obj; } catch (e) { /* offline: themes still work */ } }
+    const SEL = { music: ['arcade', 'action', 'chill', 'happy', 'spooky', ''], backdrop: ['stars', 'snow', 'bubbles', 'bokeh', 'grid', 'clouds', 'waves'] };
+    const numRange = (v) => { const a = Math.abs(v), max = a === 0 ? 10 : a < 1 ? 1 : a <= 10 ? Math.max(10, a * 3) : Math.ceil(a * 3 / 10) * 10; return { min: v < 0 ? -max : 0, max, step: Number.isInteger(v) && a >= 1 ? 1 : a < 1 ? 0.01 : 0.1 }; };
+    const field = (k) => {
+      const v = base[k], id = 'tn-' + k;
+      if (typeof v === 'boolean') return `<label class="sw tn-row"><span><b>${esc(humanKey(k))}</b></span><input type="checkbox" data-k="${k}" ${v ? 'checked' : ''}></label>`;
+      if (isHex(v)) return `<label class="tn-col"><input type="color" data-k="${k}" value="${v.slice(0, 7)}"><span>${esc(humanKey(k))}</span></label>`;
+      if (typeof v === 'number') { const r = numRange(v); return `<div class="tn-row"><label for="${id}">${esc(humanKey(k))}</label><div class="tn-num"><input type="range" data-k="${k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${v}" aria-label="${esc(humanKey(k))}"><input class="inp sm" type="number" id="${id}" data-k="${k}" step="${r.step}" value="${v}"></div></div>`; }
+      if (typeof v === 'string' && SEL[k]) return `<div class="tn-row"><label for="${id}">${esc(humanKey(k))}</label><select class="inp sm" id="${id}" data-k="${k}">${SEL[k].map((o) => `<option value="${o}" ${o === v ? 'selected' : ''}>${o || 'off'}</option>`).join('')}</select></div>`;
+      if (typeof v === 'string') return `<div class="tn-row"><label for="${id}">${esc(humanKey(k))}</label><input class="inp sm" id="${id}" data-k="${k}" value="${esc(v)}"></div>`;
+      if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return `<div class="tn-row"><label for="${id}">${esc(humanKey(k))} <span class="muted">(comma separated)</span></label><input class="inp sm" id="${id}" data-k="${k}" data-list="1" value="${esc(v.join(', '))}"></div>`;
+      return `<div class="tn-row"><label for="${id}">${esc(humanKey(k))} <span class="muted">(JSON)</span></label><textarea class="inp sm mono" rows="5" id="${id}" data-k="${k}" data-json="1">${esc(JSON.stringify(v, null, 1))}</textarea></div>`;
+    };
+    const keys = Object.keys(base);
+    const colors = keys.filter((k) => isHex(base[k])), texts = keys.filter((k) => typeof base[k] === 'string' && !isHex(base[k]));
+    const play = keys.filter((k) => typeof base[k] === 'number' || typeof base[k] === 'boolean');
+    const lists = keys.filter((k) => Array.isArray(base[k]) && base[k].every((x) => typeof x === 'string'));
+    const adv = keys.filter((k) => ![...colors, ...texts, ...play, ...lists].includes(k));
+    const themes = rec ? rec.themes : [];
+    const body = `<div class="tuner">
+      <div class="tn-prev"><div class="tn-dev"><iframe id="tnFrame" title="Live preview" sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock" allow="autoplay"></iframe></div><span class="hint" id="tnHint">Live preview · nothing is saved until you tap Save</span></div>
+      <div class="tn-form">
+        ${themes.length ? `<div class="pf-label">Themes</div><div class="tn-themes">${themes.map((t, i) => `<button type="button" class="chipb" data-th="${i}">${esc(t.emoji)} ${esc(t.name)}</button>`).join('')}</div>` : ''}
+        ${colors.length ? `<div class="pf-label">Colors</div><div class="tn-colors">${colors.map(field).join('')}</div>` : ''}
+        ${texts.length ? `<div class="pf-label">Names, text &amp; style</div>${texts.map(field).join('')}` : ''}
+        ${play.length ? `<div class="pf-label">${S.p.type === 'app' ? 'Settings' : 'Gameplay'}</div>${play.map(field).join('')}` : ''}
+        ${lists.length ? `<div class="pf-label">Lists</div>${lists.map(field).join('')}` : ''}
+        ${adv.length ? `<details class="tn-adv"><summary>Advanced (${adv.length})</summary>${adv.map(field).join('')}</details>` : ''}
+      </div></div>`;
+    const m = modal('🎛 Tune · no AI, 0 tokens', body, { wide: true, foot: '<button class="btn ghost" data-t="undo">↺ Undo all</button><button class="btn" data-t="dice">🎲 Surprise colors</button><button class="btn primary" data-t="save">💾 Save version</button>' });
+    const frame = m.el.querySelector('#tnFrame'); frame.src = `/play/${S.p.id}/v${S.n}/?acs=tune`;
+    const dev = m.el.querySelector('.tn-dev'), fitDev = () => dev.style.setProperty('--s', String(dev.clientWidth / 390)); fitDev(); new ResizeObserver(fitDev).observe(dev);
+    const write = () => {
+      for (const el of m.el.querySelectorAll('[data-k]')) {
+        const v = cur[el.dataset.k];
+        if (el.type === 'checkbox') el.checked = !!v; else if (el.dataset.list) el.value = (v || []).join(', '); else if (el.dataset.json) el.value = JSON.stringify(v, null, 1);
+        else if (el.type === 'color') el.value = String(v).slice(0, 7); else el.value = v;
+      }
+    };
+    let tmr = 0, rid = 0;
+    const preview = () => {
+      clearTimeout(tmr);
+      tmr = setTimeout(async () => {
+        const src = Recipes.setCfg(S.files[found.path], cur); const my = ++rid;
+        try { const d = await api(`/projects/${S.p.id}/drafts`, { method: 'POST', body: { base: S.n, files: { [found.path]: src }, deleted: [] } }); if (my === rid && document.contains(frame)) frame.src = `/play/${S.p.id}/d-${d.token}/?acs=tune`; }
+        catch (e) { m.el.querySelector('#tnHint').textContent = e.message; }
+      }, 450);
+    };
+    m.el.addEventListener('input', (e) => {
+      const el = e.target.closest('[data-k]'); if (!el) return; const k = el.dataset.k; let v;
+      if (el.type === 'checkbox') v = el.checked;
+      else if (el.dataset.list) v = el.value.split(',').map((x) => x.trim()).filter(Boolean);
+      else if (el.dataset.json) { try { v = JSON.parse(el.value); el.classList.remove('bad'); } catch (er) { el.classList.add('bad'); return; } }
+      else if (typeof base[k] === 'number') { v = Number(el.value); if (!isFinite(v) || el.value === '') return; m.el.querySelectorAll(`[data-k="${k}"]`).forEach((x) => { if (x !== el) x.value = v; }); }
+      else if (el.type === 'color') v = el.value + (String(base[k]).length > 7 ? String(base[k]).slice(7) : '');
+      else v = el.value;
+      cur[k] = v; preview();
+    });
+    m.el.addEventListener('click', async (e) => {
+      const th = e.target.closest('[data-th]');
+      if (th) {
+        const t = themes[Number(th.dataset.th)], reset = {};
+        if (defaults) for (const x of themes) for (const k of Object.keys(x.cfg)) if (k in defaults) reset[k] = defaults[k];
+        cur = { ...cur, ...reset, ...t.cfg }; for (const k of Object.keys(cur)) if (!(k in base)) delete cur[k];
+        write(); preview(); m.el.querySelectorAll('[data-th]').forEach((b) => b.classList.toggle('on', b === th)); return;
+      }
+      const b = e.target.closest('[data-t]'); if (!b) return;
+      if (b.dataset.t === 'undo') { cur = JSON.parse(JSON.stringify(base)); write(); preview(); m.el.querySelectorAll('[data-th]').forEach((x) => x.classList.remove('on')); }
+      if (b.dataset.t === 'dice') { const deg = 40 + Math.random() * 280; for (const k of Object.keys(cur)) if (isHex(cur[k])) cur[k] = hueShift(cur[k], deg); write(); preview(); }
+      if (b.dataset.t === 'save') {
+        const changed = Object.keys(cur).filter((k) => JSON.stringify(cur[k]) !== JSON.stringify(base[k]));
+        if (!changed.length) return toast('Nothing changed yet');
+        b.disabled = true;
+        try {
+          await saveFiles({ ...S.files, [found.path]: Recipes.setCfg(S.files[found.path], cur) }, 'Tuned: ' + changed.map(humanKey).join(', ').slice(0, 90), 'edit', 'you');
+          m.close(); await pushChat({ role: 'ai', kind: 'edit', title: 'Tuned', text: 'Changed ' + changed.map(humanKey).join(', ') + ' — no AI used, 0 tokens.', version: S.n });
+          toast('Saved v' + S.n + ' ✓', 'good'); testAndStore(S.n);
+        } catch (er) { b.disabled = false; toast(er.message, 'bad'); }
+      }
+    });
+  }
+
   // ---------- model calls ----------
   async function call(role, messages, card, opts = {}) {
     const model = roleModel(role);
@@ -374,13 +469,16 @@
 
   // ---------- flows ----------
   async function newBuild(idea, type, mode) {
-    if (S.busy || !ready()) return;
+    const exact = Recipes.exact(idea); if (exact) type = exact.type;
+    if (S.busy || (!exact && !ready())) return;
+    const hit = exact ? { recipe: exact } : S.settings.useStarters !== false ? Recipes.match(idea, type) : null;
     const name = idea.replace(/[^\w\s'-]/g, ' ').trim().split(/\s+/).slice(0, 4).join(' ').replace(/^./, (c) => c.toUpperCase()) || 'New ' + type;
-    let p; try { p = await api('/projects', { method: 'POST', body: { type, idea, name: name.slice(0, 40), emoji: type === 'app' ? '✨' : '🎮' } }); } catch (e) { toast(e.message, 'bad'); return; }
+    let p; try { p = await api('/projects', { method: 'POST', body: { type, idea, name: exact ? exact.name : name.slice(0, 40), emoji: exact ? exact.emoji : type === 'app' ? '✨' : '🎮', recipe: hit ? hit.recipe.id : '' } }); } catch (e) { toast(e.message, 'bad'); return; }
     history.replaceState(null, '', '#p=' + p.id);
     await openProject(p.id);
     await pushChat({ role: 'user', text: idea });
-    if (mode === 'quick' || S.settings.planFirst === false) await runJob('build', { idea, type, mode });
+    if (exact) await runJob('build', { idea, type, mode, recipe: exact.id, exact: true });
+    else if (mode === 'quick' || S.settings.planFirst === false) await runJob('build', { idea, type, mode, recipe: hit ? hit.recipe.id : '' });
     else await runPlan(idea, type);
   }
 
@@ -390,10 +488,15 @@
     const card = jobCard('Architect is planning', ['Plan']);
     try {
       card.phase('Plan', 500); card.log('pm', 'New ' + type + ' request → asking the Architect for a plan');
-      const r = await call('architect', Engine.architectMessages(type, idea), card, { maxOut: 900, temperature: 0.6, format: Engine.PLAN_SCHEMA });
+      const starters = S.settings.useStarters !== false ? Recipes.list.filter((x) => x.type === type) : [];
+      const r = await call('architect', Engine.architectMessages(type, idea, starters), card, { maxOut: 950, temperature: 0.6, format: Engine.planSchema(starters.map((x) => x.id)) });
       const raw = Engine.parseJson(r.text);
       if (!raw) throw Object.assign(new Error('The Architect did not return a readable plan. Try again or pick a different planning model in Settings.'), { raw: r.text });
       const plan = Engine.normalizePlan(raw, type);
+      if (plan.starter && !starters.some((x) => x.id === plan.starter)) plan.starter = '';
+      if (starters.length && raw.starter === undefined) { const hit = Recipes.match(idea, type); if (hit) plan.starter = hit.recipe.id; }
+      const rec = Recipes.get(plan.starter);
+      card.log('architect', rec ? `Best fit: the ${rec.emoji} ${rec.name} starter — it gets re-themed and adjusted instead of written from scratch` : 'No starter fits — the Coder writes it from scratch', rec ? 'ok' : '');
       if (!plan.features.length) plan.features = [idea];
       if (!plan.tasks.length) plan.tasks = ['Complete playable core of: ' + idea];
       card.stop();
@@ -409,13 +512,14 @@
   }
 
   async function runJob(kind, args) {
-    if (S.busy || !ready()) return;
+    if (S.busy || (!args.exact && !ready())) return;
     if (dirtyCount() && kind !== 'build') await saveBuffers(true);
     const mode = args.mode || S.mode; const plan = args.plan || null;
-    const stepMode = kind === 'build' && mode === 'quality' && plan && plan.tasks.length > 1;
+    const recipe = kind === 'build' ? Recipes.get(args.recipe || (plan && plan.starter) || '') : null;
+    const stepMode = kind === 'build' && mode === 'quality' && plan && plan.tasks.length > 1 && !recipe;
     const ap = S.settings.autopilot !== false;
-    const playOn = kind === 'build' ? mode !== 'quick' : ap || mode === 'quality'; const critOn = kind === 'build' && mode !== 'quick' && (ap || mode === 'quality');
-    const steps = kind === 'build' ? ['Write', ...(stepMode ? ['Steps'] : []), 'Test', 'Fix', ...(mode === 'quality' ? ['Features'] : []), ...(playOn ? ['Play'] : []), ...(critOn ? ['Critique'] : []), ...(critOn && ap && S.settings.autoImprove ? ['Improve'] : [])]
+    const playOn = kind === 'build' ? mode !== 'quick' : ap || mode === 'quality'; const critOn = kind === 'build' && mode !== 'quick' && (ap || mode === 'quality') && !args.exact;
+    const steps = kind === 'build' ? [...(recipe ? ['Starter', ...(args.exact ? [] : ['Customize'])] : ['Write']), ...(stepMode ? ['Steps'] : []), 'Test', 'Fix', ...(mode === 'quality' ? ['Features'] : []), ...(playOn ? ['Play'] : []), ...(critOn ? ['Critique'] : []), ...(critOn && ap && S.settings.autoImprove ? ['Improve'] : [])]
       : ['Patch', 'Test', 'Fix', ...(playOn ? ['Play'] : [])];
     const title = kind === 'build' ? 'Building ' + (plan ? plan.name : 'your ' + (args.type || S.p.type)) : kind === 'fix' ? 'Fixing problems' : 'Applying: ' + (args.request || '').slice(0, 50);
     S.abort = new AbortController(); S.job = { in: 0, out: 0, ms: 0, log: [] }; setBusy(true);
@@ -423,8 +527,24 @@
     const entry = { role: 'ai', kind, title: '', text: '' };
     let lastRaw = '';
     try {
-      let files = { ...S.files }; let message = ''; const before = { files: { ...S.files }, fail: ((curVersion() || {}).tests || { summary: { fail: 0 } }).summary.fail };
-      if (kind === 'build') {
+      let files = { ...S.files }; let message = ''; let starterV = null; const before = { files: { ...S.files }, fail: ((curVersion() || {}).tests || { summary: { fail: 0 } }).summary.fail };
+      if (kind === 'build' && recipe) {
+        const brief = plan ? Engine.planText(plan) : '';
+        card.log('pm', `Starting from the ${recipe.emoji} ${recipe.name} starter — finished and tested, 0 tokens`);
+        card.phase('Starter', 100);
+        const src = await (await fetch('recipes/' + recipe.id + '.html')).text();
+        starterV = await saveFiles({ 'index.html': src }, 'Starter: ' + recipe.name + ' (0 tokens)', 'build', '');
+        files = { ...S.files };
+        if (S.p.recipe !== recipe.id) { S.p.recipe = recipe.id; api('/projects/' + S.p.id, { method: 'PUT', body: { recipe: recipe.id } }).catch(() => {}); }
+        if (!args.exact) {
+          card.log('qa', 'v' + S.n + ' is already playable — check Preview while the Coder customizes it', 'ok');
+          card.phase('Customize', Engine.EST_OUT.starter); card.log('coder', 'Customizing the starter: ' + String(args.idea).slice(0, 90));
+          try {
+            const res = await patchFlow(files, Engine.customizeMessages(files, args.idea, brief, recipe), 'Customize the starter: ' + args.idea, card, 'coder');
+            lastRaw = res.raw; if (Object.keys(res.files).some((k) => res.files[k] !== files[k])) { files = res.files; message = 'Customized: ' + String(args.idea).slice(0, 70); }
+          } catch (e) { if (e.name === 'AbortError') throw e; card.log('coder', 'Customizing did not apply (' + e.message + ') — you still have the working starter. Ask for changes in chat.', 'warn'); }
+        }
+      } else if (kind === 'build') {
         const type = args.type || S.p.type;
         let brief = plan ? Engine.planText(plan) : '';
         if (stepMode) brief += `\n\nBuild ONLY step 1 now: ${plan.tasks[0]}\nMake it complete and playable on its own. Later steps arrive as patches: ${plan.tasks.slice(1).join('; ')}. Structure the code so they are easy to add.`;
@@ -443,14 +563,28 @@
         if (!ex.complete) card.log('coder', 'Output looks cut off — QA will check it', 'warn');
         files = { ...files, 'index.html': ex.html }; message = stepMode ? 'Step 1: ' + plan.tasks[0].slice(0, 80) : 'Initial build';
       } else {
-        card.phase('Patch', kind === 'fix' ? 700 : 900);
         const problems = args.problems || [];
-        card.log(kind === 'fix' ? 'debugger' : 'coder', kind === 'fix' ? `Diagnosing ${problems.length} problem${problems.length > 1 ? 's' : ''}` : 'Patching: ' + args.request.slice(0, 90));
-        const res = await patchFlow(files, kind === 'fix' ? Engine.fixMessages(files, problems) : Engine.editMessages(files, args.request, S.p.idea), args.request || 'Fix: ' + problems.join('; '), card, kind === 'fix' ? 'debugger' : 'coder');
-        lastRaw = res.raw; files = res.files; entry.text = res.how;
-        message = kind === 'fix' ? 'Fix: ' + (problems[0] || 'problems').slice(0, 80) : args.request;
+        let lean = kind === 'edit' && S.settings.leanEdits !== false && Engine.isTuneRequest(args.request) ? cfgOf(files) : null;
+        if (lean) {
+          card.phase('Patch', Engine.EST_OUT.tune);
+          const small = Engine.estTokens(JSON.stringify(lean.cfg)), big = Engine.estTokens(Engine.filesBlock(files));
+          card.log('coder', `Lean edit: sending only the tuning block (~${fmtTok(small)} tokens instead of ~${fmtTok(big)})`);
+          try {
+            const r = await call('coder', Engine.tuneMessages(lean.cfg, args.request, S.p.type), card, { maxOut: Math.max(700, small * 2 + 300), temperature: 0.3, format: 'json' });
+            lastRaw = r.text; const m = Engine.mergeCfg(lean.cfg, Engine.parseJson(r.text));
+            if (m && m.changed.length) { files = { ...files, [lean.path]: Recipes.setCfg(files[lean.path], m.cfg) }; entry.text = 'Lean edit — changed ' + m.changed.slice(0, 8).join(', ') + '.'; message = args.request; card.log('coder', 'Changed ' + m.changed.join(', '), 'ok'); }
+            else { card.log('coder', m ? 'No tuning value covers that — using a normal patch' : 'That needs new code — using a normal patch', 'warn'); lean = null; }
+          } catch (e) { if (e.name === 'AbortError') throw e; card.log('coder', 'Lean edit failed (' + e.message + ') — using a normal patch', 'warn'); lean = null; }
+        }
+        if (!lean) {
+          card.phase('Patch', kind === 'fix' ? 700 : 900);
+          card.log(kind === 'fix' ? 'debugger' : 'coder', kind === 'fix' ? `Diagnosing ${problems.length} problem${problems.length > 1 ? 's' : ''}` : 'Patching: ' + args.request.slice(0, 90));
+          const res = await patchFlow(files, kind === 'fix' ? Engine.fixMessages(files, problems) : Engine.editMessages(files, args.request, S.p.idea), args.request || 'Fix: ' + problems.join('; '), card, kind === 'fix' ? 'debugger' : 'coder');
+          lastRaw = res.raw; files = res.files; entry.text = res.how;
+          message = kind === 'fix' ? 'Fix: ' + (problems[0] || 'problems').slice(0, 80) : args.request;
+        }
       }
-      let v = await saveFiles(files, message, kind, roleModel('coder'));
+      let v = message ? await saveFiles(files, message, kind, roleModel('coder')) : starterV;
       card.phase('Test'); let tests = await qaRun(v.n, card);
 
       if (stepMode) {
@@ -503,6 +637,7 @@
         }
       }
       const sum = tests.summary;
+      if (args.exact) entry.text = 'Built from the finished starter — 0 tokens. Tap 🎛 Tune to change colors, speeds and difficulty for free, or ask for changes.';
       entry.title = kind === 'build' ? `Built ${S.p.name}` : kind === 'fix' ? 'Fixed' : 'Updated';
       entry.text = [entry.text, sum.fail ? `${sum.fail} test${sum.fail > 1 ? 's' : ''} still failing — open Tests or tap “🐞 Fix bugs”.` : sum.warn ? 'Works — a few warnings in Tests.' : 'All tests passed.'].filter(Boolean).join(' ');
       entry.version = S.n; entry.tests = sum; entry.stats = { in: S.job.in, out: S.job.out, ms: S.job.ms }; entry.log = S.job.log.slice(-30);
@@ -1132,6 +1267,8 @@
           <div class="field"><label>Improvement rounds after the review</label><select class="inp" id="sImprove">${[0, 1, 2, 3].map((n) => `<option ${n === s.autoImprove ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
           <div class="field"><label>Playtest length</label><select class="inp" id="sPlaySecs">${[12, 20, 30, 45].map((n) => `<option value="${n}" ${n === s.playtestSecs ? 'selected' : ''}>${n} seconds</option>`).join('')}</select></div>
         </div>
+        <label class="sw"><span><b>⚡ Start from starters</b><br><span class="muted" style="font-size:13px">When your idea matches a finished starter (shooter, runner, match-3, fishing, habit tracker…), the AI only re-themes and adjusts it. Roughly 4–6× fewer tokens than writing from scratch.</span></span><input type="checkbox" id="sStarters" ${s.useStarters !== false ? 'checked' : ''}></label>
+        <label class="sw"><span><b>🎛 Lean edits</b><br><span class="muted" style="font-size:13px">Requests like “make it faster” or “blue theme” send only the tuning block (~300 tokens) instead of the whole file. Falls back to a normal patch when code is needed.</span></span><input type="checkbox" id="sLean" ${s.leanEdits !== false ? 'checked' : ''}></label>
         <label class="sw"><span><b>Skip “thinking”</b><br><span class="muted" style="font-size:13px">Reasoning models (qwen3, deepseek-r1…) answer directly. Saves lots of tokens and time.</span></span><input type="checkbox" id="sNoThink" ${s.noThink ? 'checked' : ''}></label></div>
       <div class="fset"><h3>Phone</h3>${lan.length ? lan.map((l) => `<div class="lan"><span class="grow">${esc(l)}</span><button class="btn sm" data-s="copy" data-v="${esc(l)}">Copy</button></div>`).join('') : '<p class="muted">No Wi-Fi address found.</p>'}
         <p class="muted" style="font-size:13px">Open that address in Chrome on your phone (same Wi-Fi). ${S.health && S.health.needsPin ? 'PIN protection is on.' : 'Tip: start the studio with a PIN on shared Wi-Fi — it also unlocks the terminal from your phone.'}</p></div>`;
@@ -1154,6 +1291,7 @@
           ollamaUrl: q('#sUrl').value.trim(), codeModel: q('#sCode').value, fastModel: q('#sFast').value, roles: rolesNew, autoFix: Number(q('#sFix').value), planFirst: q('#sPlan').checked,
           numCtx: Number(q('#sCtx').value), maxOutput: Number(q('#sOut').value), temperature: Number(q('#sTemp').value), keepAlive: q('#sKeep').value, noThink: q('#sNoThink').checked, mode: S.mode,
           autopilot: q('#sAuto').checked, autoApproveSecs: Number(q('#sApprove').value), autoImprove: Number(q('#sImprove').value), playtestSecs: Number(q('#sPlaySecs').value),
+          useStarters: q('#sStarters').checked, leanEdits: q('#sLean').checked,
         } });
         m.close(); toast('Settings saved', 'good'); refreshHealth();
       }
@@ -1223,6 +1361,7 @@
     'plan-cancel': (b) => { const m = S.p.chat[Number(b.dataset.i)]; m.status = 'cancelled'; renderChat(); saveChat(); },
     chip: async (b) => {
       const t = b.dataset.t;
+      if (/^🎛/.test(t)) return openTuner();
       if (/Get feedback/.test(t)) return runReview();
       if (/Playtest/.test(t)) return runPlaytestOnly();
       if (/Fix bugs/.test(t)) {
@@ -1233,6 +1372,7 @@
       runJob('edit', { request: t.replace(/^\S+\s/, '') });
     },
     stop: () => { if (S.abort) S.abort.abort(); },
+    tune: () => openTuner(),
     view: (b) => viewVersion(Number(b.dataset.n)),
     'view-latest': () => { S.viewN = 0; loadPreview(); },
     restore: async (b) => { if (await confirmBox('Restore v' + b.dataset.n + '?', '<p class="muted">Creates a new version with that code. Nothing is lost.</p>', 'Restore')) restoreVersion(Number(b.dataset.n)); },
@@ -1298,6 +1438,7 @@
     $('#apToggle').addEventListener('change', async (e) => { S.settings = await api('/settings', { method: 'POST', body: { autopilot: e.target.checked } }); toast(e.target.checked ? '🤖 Autopilot on — it runs every step for you' : 'Autopilot off — you approve each step', '', 3200); });
     const planTouch = (e) => { const card = e.target.closest && e.target.closest('.msg.plan[data-plan]'); if (card && !e.target.closest('[data-act=plan-approve],[data-act=plan-redo],[data-act=plan-cancel]')) pausePlan(Number(card.dataset.plan)); };
     $('#chatLog').addEventListener('focusin', planTouch); $('#chatLog').addEventListener('input', planTouch);
+    $('#chatLog').addEventListener('change', (e) => { const sel = e.target.closest && e.target.closest('select[data-pf=starter]'); if (sel) { readPlanForm(Number(sel.dataset.i)); renderChat(); saveChat(); } });
     $('#ideaInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ACT.build(); });
     $('#composer').addEventListener('submit', (e) => {
       e.preventDefault(); const t = $('#chatInput').value.trim(); if (!t || S.busy) return;

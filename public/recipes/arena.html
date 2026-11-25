@@ -1,0 +1,185 @@
+<!-- app: {"name":"Zombie Survival","emoji":"🧟","color":"#a3e635","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Zombie Survival</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: names, colors, emoji, speeds, difficulty
+const CFG = {
+  "title": "Zombie Survival",
+  "emoji": "🧟",
+  "help": "Drag to move. You aim and shoot on your own. Survive every wave!",
+  "accent": "#a3e635",
+  "floor": "#121a14",
+  "floorLine": "#1b2a1e",
+  "fog": "#a3e635",
+  "music": "spooky",
+  "player": "🤠",
+  "enemies": ["🧟", "🧟‍♂️", "🧟‍♀️"],
+  "brute": "👹",
+  "gem": "💚",
+  "heart": "❤️",
+  "bulletColor": "#fde047",
+  "lives": 5,
+  "fireRate": 2.6,
+  "bulletSpeed": 520,
+  "range": 250,
+  "moveSpeed": 165,
+  "enemySpeed": 40,
+  "waveSeconds": 20,
+  "spawnRate": 1.1,
+  "bruteEvery": 3
+};
+
+// GAME
+const UPGRADES = [
+  { icon: '⚡', title: 'Rapid fire', desc: '+30% fire rate', apply: (P) => { P.rate *= 1.3; } },
+  { icon: '🔱', title: 'Multishot', desc: '+1 bullet per shot', apply: (P) => { P.guns = Math.min(6, P.guns + 1); } },
+  { icon: '🎯', title: 'Piercing', desc: 'Bullets go through +1 enemy', apply: (P) => { P.pierce++; } },
+  { icon: '👟', title: 'Swift boots', desc: '+15% move speed', apply: (P) => { P.speed *= 1.15; } },
+  { icon: '🧲', title: 'Big magnet', desc: 'Grab gems from far away', apply: (P) => { P.magnet += 60; } },
+  { icon: '💥', title: 'Damage up', desc: '+1 damage', apply: (P) => { P.dmg++; } },
+  { icon: '🌀', title: 'Orbit blade', desc: 'A blade circles you', apply: (P) => { P.blades++; } },
+  { icon: '❤️', title: 'Patch up', desc: '+2 lives', apply: (P, g) => { g.lives += 2; } },
+];
+let P, foes, shots, gems, wave, waveT, spawnT, cool, stick, wavePause;
+
+function startWave(g) {
+  wave++; g.level = wave; waveT = CFG.waveSeconds; spawnT = 1.2;
+  g.banner('WAVE ' + wave, wave === 1 ? 'Here they come…' : '');
+  if (wave % CFG.bruteEvery === 0) { const hp = 18 + wave * 6; spawnFoe(g, { brute: 1, hp, max: hp, r: 28, sp: 0.6 }); g.sfx('power'); }
+}
+function spawnFoe(g, o) {
+  const side = g.randi(0, 3), m = 30, X = g.viewX, Y = g.viewY, W = g.viewW, H = g.viewH;
+  const x = side === 0 ? X - m : side === 1 ? X + W + m : g.rand(X, X + W), y = side === 2 ? Y - m : side === 3 ? Y + H + m : g.rand(Y, Y + H);
+  const hp = 1 + Math.floor(wave / 3);
+  foes.push(Object.assign({ x, y, r: 14, hp, max: hp, sp: g.rand(0.85, 1.15), em: g.pick(CFG.enemies), hit: 0, bob: g.rand(0, 6), cd: {} }, o || {}));
+}
+function damage(g, e, n, x, y) {
+  e.hp -= n; e.hit = 0.08; g.particles(x, y, { color: '#7f1d1d', n: 4, speed: 80, size: 3 });
+  if (e.hp > 0) return false;
+  foes.splice(foes.indexOf(e), 1);
+  g.addScore(e.brute ? 100 * wave : 10, e.x, e.y - 16);
+  g.particles(e.x, e.y, { color: [CFG.accent, '#4d7c0f', '#7f1d1d'], n: e.brute ? 40 : 12, speed: e.brute ? 260 : 150 });
+  g.sfx(e.brute ? 'explode' : 'pop'); if (e.brute) { g.shake(14); g.flash(CFG.accent, 0.25); }
+  const n2 = e.brute ? 10 : 1;
+  for (let k = 0; k < n2; k++) gems.push({ x: e.x + g.rand(-12, 12) * (n2 > 1), y: e.y + g.rand(-12, 12) * (n2 > 1), heart: !e.brute && g.chance(0.035), t: 0 });
+  return true;
+}
+function endWave(g) {
+  wavePause = true; g.flash('#fff', 0.35); g.shake(8); g.sfx('explode');
+  for (const e of foes.slice()) { g.particles(e.x, e.y, { color: [CFG.accent, '#fff'], n: 8, speed: 160 }); gems.push({ x: e.x, y: e.y, t: 0 }); }
+  foes = []; g.banner('WAVE CLEARED!');
+  g.after(0.9, () => {
+    const pool = UPGRADES.slice().sort(() => Math.random() - 0.5).slice(0, 3);
+    g.choose(pool, (i, u) => { u.apply(P, g); g.floatText(P.x, P.y - 40, u.title + '!', CFG.accent, 20); wavePause = false; startWave(g); }, { title: 'Pick an upgrade', sub: 'Wave ' + wave + ' survived' });
+  });
+}
+
+Kit.game({
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.floor, lives: CFG.lives, music: CFG.music,
+  init(g) {
+    P = { x: 180, y: 360, r: 14, inv: 2, rate: CFG.fireRate, guns: 1, pierce: 0, speed: CFG.moveSpeed, magnet: 34, dmg: 1, blades: 0, face: 1 };
+    foes = []; shots = []; gems = []; wave = 0; waveT = 1; spawnT = 1; cool = 0; stick = null; wavePause = false;
+  },
+  update(g, dt) {
+    if (!wave) startWave(g);
+    const inp = g.input;
+    if (inp.pressed) stick = { x: inp.x, y: inp.y }; if (!inp.down) stick = null;
+    P.x += inp.axis.x * P.speed * dt; P.y += inp.axis.y * P.speed * dt;
+    if (inp.axis.x) P.face = Math.sign(inp.axis.x);
+    P.x = g.clamp(P.x, g.viewX + 16, g.viewX + g.viewW - 16); P.y = g.clamp(P.y, Math.max(g.viewY, 0) + 70, g.viewY + g.viewH - 20);
+    P.inv -= dt;
+
+    if (!wavePause) {
+      waveT -= dt; spawnT -= dt;
+      if (spawnT <= 0 && foes.length < 70) { spawnT = 1 / (CFG.spawnRate * (1 + wave * 0.35)); spawnFoe(g); if (wave > 2 && g.chance(0.3)) spawnFoe(g); }
+      if (waveT <= 0) { endWave(g); return; }
+    }
+
+    let near = null, nd = CFG.range;
+    for (const e of foes) { const d = g.dist(e, P); if (d < nd) { nd = d; near = e; } }
+    cool -= dt;
+    if (near && cool <= 0) {
+      cool = 1 / P.rate; const a = g.angle(P, near);
+      for (let k = 0; k < P.guns; k++) { const b = a + (k - (P.guns - 1) / 2) * 0.14; shots.push({ x: P.x, y: P.y, vx: Math.cos(b) * CFG.bulletSpeed, vy: Math.sin(b) * CFG.bulletSpeed, p: P.pierce, life: 0.8, hit: [] }); }
+      g.sfx('shoot'); P.face = Math.sign(near.x - P.x) || P.face;
+    }
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const s = shots[i]; s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
+      let gone = s.life <= 0;
+      for (let j = foes.length - 1; j >= 0 && !gone; j--) {
+        const e = foes[j]; if (s.hit.includes(e)) continue;
+        if (Math.abs(s.x - e.x) < e.r + 4 && Math.abs(s.y - e.y) < e.r + 4) { s.hit.push(e); damage(g, e, P.dmg, s.x, s.y); if (s.p-- <= 0) gone = true; }
+      }
+      if (gone) shots.splice(i, 1);
+    }
+
+    const ang = g.t * 3.2;
+    for (let b = 0; b < P.blades; b++) {
+      const a = ang + b * Math.PI * 2 / P.blades, bx = P.x + Math.cos(a) * 52, by = P.y + Math.sin(a) * 52;
+      for (const e of foes.slice()) { if (g.dist({ x: bx, y: by }, e) < e.r + 12 && !(e.cd.blade > g.t)) { e.cd.blade = g.t + 0.35; damage(g, e, P.dmg, bx, by); } }
+    }
+
+    for (const e of foes) {
+      e.hit -= dt; const a = g.angle(e, P), sp = CFG.enemySpeed * e.sp * (1 + wave * 0.06);
+      e.x += Math.cos(a) * sp * dt; e.y += Math.sin(a) * sp * dt;
+      for (const o of foes) {
+        if (o === e) continue; const dx = e.x - o.x, dy = e.y - o.y, d2 = dx * dx + dy * dy, rr = e.r + o.r;
+        if (d2 < rr * rr && d2 > 0.01) { const d = Math.sqrt(d2), push = (rr - d) * 0.5; e.x += dx / d * push; e.y += dy / d * push; }
+      }
+      if (P.inv <= 0 && g.dist(e, P) < e.r + P.r - 2) {
+        P.inv = 1.2; g.loseLife(); g.particles(P.x, P.y, { color: ['#ef4444', '#fff'], n: 16 });
+        for (const o of foes) { const d = g.dist(o, P); if (d < 90) { const k = g.angle(P, o); o.x += Math.cos(k) * (90 - d); o.y += Math.sin(k) * (90 - d); } }
+        if (g.state !== 'play') return;
+      }
+    }
+
+    for (let i = gems.length - 1; i >= 0; i--) {
+      const m = gems[i]; m.t += dt; const d = g.dist(m, P);
+      if (d < P.magnet) { const a = g.angle(m, P); m.x += Math.cos(a) * 320 * dt; m.y += Math.sin(a) * 320 * dt; }
+      if (d < 18) {
+        gems.splice(i, 1);
+        if (m.heart) { g.lives = Math.min(CFG.lives + 3, g.lives + 1); g.sfx('power'); g.floatText(P.x, P.y - 34, '+1 ❤️', '#fca5a5'); }
+        else { g.addScore(5); if (g.chance(0.35)) g.sfx('coin'); }
+      } else if (m.t > 14) gems.splice(i, 1);
+    }
+  },
+  draw(g, ctx) {
+    g.clear(CFG.floor);
+    const X = g.viewX, Y = g.viewY, W = g.viewW, H = g.viewH, s = 40;
+    ctx.strokeStyle = CFG.floorLine; ctx.lineWidth = 2; ctx.beginPath();
+    for (let x = Math.floor(X / s) * s; x < X + W; x += s) { ctx.moveTo(x, Y); ctx.lineTo(x, Y + H); }
+    for (let y = Math.floor(Y / s) * s; y < Y + H; y += s) { ctx.moveTo(X, y); ctx.lineTo(X + W, y); }
+    ctx.stroke();
+    g.backdrop('bokeh', { tint: [CFG.fog], speed: 0.5, alpha: 0.4 });
+    if (!P) return;
+    for (const m of gems) g.emoji(m.heart ? CFG.heart : CFG.gem, m.x, m.y + Math.sin(m.t * 6) * 2, m.heart ? 18 : 13);
+    for (const e of foes) {
+      const sz = e.brute ? 62 : 30;
+      g.circle(e.x, e.y + sz * 0.42, sz * 0.32, 'rgba(0,0,0,.35)');
+      g.emoji(e.brute ? CFG.brute : e.em, e.x, e.y + Math.sin(g.t * 7 + e.bob) * 1.5, sz, Math.sin(g.t * 5 + e.bob) * 0.12);
+      if (e.hit > 0) g.circle(e.x, e.y, e.r + 2, 'rgba(255,255,255,.5)');
+      if (e.brute) { g.rect(e.x - 30, e.y - 44, 60, 6, 'rgba(0,0,0,.5)', 3); g.rect(e.x - 30, e.y - 44, 60 * Math.max(0, e.hp / e.max), 6, '#ef4444', 3); }
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    for (const b of shots) { g.circle(b.x, b.y, 6, CFG.bulletColor + '55'); g.circle(b.x, b.y, 2.6, '#fff'); }
+    for (let b = 0; b < P.blades; b++) { const a = g.t * 3.2 + b * Math.PI * 2 / P.blades; g.circle(P.x + Math.cos(a) * 52, P.y + Math.sin(a) * 52, 9, CFG.accent + '88'); g.circle(P.x + Math.cos(a) * 52, P.y + Math.sin(a) * 52, 4, '#fff'); }
+    ctx.globalCompositeOperation = 'source-over';
+    g.circle(P.x, P.y + 15, 11, 'rgba(0,0,0,.4)');
+    if (!(P.inv > 0 && Math.floor(g.t * 12) % 2 && g.state === 'play')) {
+      ctx.save(); ctx.translate(P.x, P.y); ctx.scale(P.face < 0 ? -1 : 1, 1); g.emoji(CFG.player, 0, Math.sin(g.t * 10) * (g.input.down ? 1.5 : 0.4), 34); ctx.restore();
+    }
+    const v = ctx.createRadialGradient(P.x, P.y, 120, P.x, P.y, 460); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.6)'); ctx.fillStyle = v; ctx.fillRect(X, Y, W, H);
+    if (g.state === 'play' && !wavePause) { const w = 140; g.rect(180 - w / 2, 78, w, 5, 'rgba(255,255,255,.15)', 3); g.rect(180 - w / 2, 78, w * Math.max(0, waveT / CFG.waveSeconds), 5, CFG.accent, 3); }
+    if (stick && g.state === 'play') { g.ring(stick.x, stick.y, 34, 'rgba(255,255,255,.25)', 2); const dx = g.clamp(g.input.x - stick.x, -34, 34), dy = g.clamp(g.input.y - stick.y, -34, 34); g.circle(stick.x + dx, stick.y + dy, 14, 'rgba(255,255,255,.3)'); }
+  },
+});
+</script>
+</body>
+</html>

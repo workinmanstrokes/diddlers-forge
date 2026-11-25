@@ -1,0 +1,194 @@
+<!-- app: {"name":"Lunker Rush","emoji":"🎣","color":"#38bdf8","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lunker Rush</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: names, colors, fish, difficulty
+const CFG = {
+  "title": "Lunker Rush",
+  "emoji": "🎣",
+  "help": "Hold and let go to cast. Tap when the bobber dips. Hold to reel, but let go when the line turns red!",
+  "accent": "#38bdf8",
+  "skyTop": "#38bdf8",
+  "skyBottom": "#fde68a",
+  "nightSky": "#1e1b4b",
+  "waterTop": "#0e7490",
+  "waterBottom": "#082f49",
+  "treeColor": "#14532d",
+  "boat": "🚣",
+  "boatColor": "#b45309",
+  "music": "chill",
+  "lives": 3,
+  "daySeconds": 120,
+  "biteMin": 1.2,
+  "biteMax": 3.6,
+  "hookWindow": 1,
+  "reelSpeed": 0.24,
+  "fish": [
+    { "name": "Bluegill", "color": "#60a5fa", "belly": "#fbbf24", "pattern": "bars", "min": 0.3, "max": 1.4, "pts": 10, "fight": 0.45, "rarity": 30 },
+    { "name": "Yellow Perch", "color": "#facc15", "belly": "#fef9c3", "pattern": "bars", "min": 0.4, "max": 1.8, "pts": 15, "fight": 0.55, "rarity": 24 },
+    { "name": "Largemouth Bass", "color": "#65a30d", "belly": "#ecfccb", "pattern": "stripe", "min": 1.5, "max": 9, "pts": 40, "fight": 0.95, "rarity": 16 },
+    { "name": "Smallmouth Bass", "color": "#a16207", "belly": "#fef3c7", "pattern": "bars", "min": 1, "max": 6, "pts": 45, "fight": 1.05, "rarity": 12 },
+    { "name": "Walleye", "color": "#ca8a04", "belly": "#f5f5f4", "pattern": "spots", "min": 1.5, "max": 11, "pts": 60, "fight": 0.95, "rarity": 9 },
+    { "name": "Rainbow Trout", "color": "#94a3b8", "belly": "#fda4af", "pattern": "spots", "min": 1, "max": 10, "pts": 70, "fight": 1.15, "rarity": 7 },
+    { "name": "Northern Pike", "color": "#3f6212", "belly": "#fef9c3", "pattern": "spots", "min": 3, "max": 22, "pts": 120, "fight": 1.3, "rarity": 5 },
+    { "name": "Muskie", "color": "#84cc16", "belly": "#f5f5f4", "pattern": "bars", "min": 10, "max": 45, "pts": 400, "fight": 1.55, "rarity": 1.5 },
+    { "name": "Lake Sturgeon", "color": "#57534e", "belly": "#d6d3d1", "pattern": "plates", "min": 20, "max": 110, "pts": 800, "fight": 1.7, "rarity": 0.6 }
+  ]
+};
+
+// GAME
+const HZ = 220, TIP = { x: 118, y: 140 };
+let st, stT, power, pdir, bob, fish, D, T, snapT, slackT, burst, burstT, dayT, streak, card, log, shadows, nib;
+
+function pickFish(g, dist) {
+  const ws = CFG.fish.map((f) => f.rarity * (f.pts >= 100 ? 0.4 + dist * 1.4 : 1));
+  let r = Math.random() * ws.reduce((a, b) => a + b, 0), i = 0; while (r > ws[i] && i < ws.length - 1) r -= ws[i++];
+  const f = CFG.fish[i], u = Math.pow(Math.random(), 1.8);
+  return { ...f, w: f.min + (f.max - f.min) * u, u };
+}
+function lbs(w) { const lb = Math.floor(w), oz = Math.round((w - lb) * 16); return (lb ? lb + ' lb ' : '') + (oz === 16 ? '' : oz + ' oz'); }
+function to(s) { st = s; stT = 0; }
+
+function drawFish(ctx, x, y, len, f, dir, wig) {
+  const h = len * 0.36; ctx.save(); ctx.translate(x, y); ctx.scale(dir, 1); ctx.rotate(Math.sin(wig) * 0.12);
+  ctx.fillStyle = f.color; ctx.beginPath(); ctx.moveTo(-len * 0.42, 0); ctx.lineTo(-len * 0.68, -h * 0.75 + Math.sin(wig * 2) * 3); ctx.lineTo(-len * 0.62, 0); ctx.lineTo(-len * 0.68, h * 0.75 + Math.sin(wig * 2) * 3); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-len * 0.1, -h * 0.45); ctx.quadraticCurveTo(len * 0.05, -h * 1.05, len * 0.22, -h * 0.4); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0, 0, len * 0.48, h * 0.5, 0, 0, 6.283); ctx.fill();
+  ctx.save(); ctx.clip(); ctx.fillStyle = f.belly; ctx.fillRect(-len, h * 0.08, len * 2, h);
+  ctx.fillStyle = 'rgba(0,0,0,.22)';
+  if (f.pattern === 'bars') for (let i = -3; i <= 2; i++) ctx.fillRect(i * len * 0.13, -h, len * 0.05, h * 1.2);
+  else if (f.pattern === 'spots') for (let i = 0; i < 14; i++) { ctx.beginPath(); ctx.arc(((i * 37) % 80 - 40) / 100 * len, ((i * 53) % 50 - 30) / 100 * h, len * 0.025, 0, 6.283); ctx.fill(); }
+  else if (f.pattern === 'stripe') ctx.fillRect(-len * 0.5, -h * 0.08, len, h * 0.14);
+  else if (f.pattern === 'plates') for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.moveTo(i * len * 0.12, -h * 0.4); ctx.lineTo(i * len * 0.12 + len * 0.04, -h * 0.28); ctx.lineTo(i * len * 0.12, -h * 0.16); ctx.lineTo(i * len * 0.12 - len * 0.04, -h * 0.28); ctx.fill(); }
+  ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(-len, -h * 0.5, len * 2, h * 0.18); ctx.restore();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(len * 0.3, -h * 0.1, h * 0.13, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(len * 0.32, -h * 0.1, h * 0.07, 0, 6.283); ctx.fill();
+  ctx.restore();
+}
+function mix(a, b, t) { const p = (c) => [1, 3, 5].map((k) => parseInt(c.slice(k, k + 2), 16)); const x = p(a), y = p(b); return 'rgb(' + x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(',') + ')'; }
+
+Kit.game({
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.waterBottom, lives: CFG.lives, music: CFG.music, lifeIcon: '🪝', overEmoji: '🌅', overText: 'Sunset!',
+  init(g) {
+    to('ready'); power = 0; pdir = 1; bob = null; fish = null; D = 1; T = 0.3; snapT = 0; slackT = 0; burst = 0; burstT = 2; dayT = 0; streak = 0; card = null; nib = 0;
+    log = g.load('log', {}); shadows = Array.from({ length: 5 }, (_, i) => ({ x: g.rand(0, 360), y: g.rand(HZ + 120, 600), s: g.rand(22, 48), v: g.rand(8, 22) * (i % 2 ? 1 : -1) }));
+  },
+  update(g, dt) {
+    const inp = g.input, held = inp.down || inp.key(' ') || inp.key('ArrowUp'), act = inp.pressed || inp.keyPressed(' ') || inp.keyPressed('ArrowUp') || inp.keyPressed('Enter');
+    dayT += dt; stT += dt;
+    if (dayT >= CFG.daySeconds) { g.over(); return; }
+    if (Math.floor(dayT) === CFG.daySeconds - 15 && Math.floor(dayT - dt) !== Math.floor(dayT)) g.banner('15 seconds left!', 'Sun is going down');
+    for (const s of shadows) { s.x += s.v * dt; if (s.x < -60) s.x = 420; if (s.x > 420) s.x = -60; }
+
+    if (st === 'ready') {
+      if (inp.down) { power += pdir * dt * 1.6; if (power > 1) { power = 1; pdir = -1; } if (power < 0) { power = 0; pdir = 1; } }
+      if (inp.released || inp.keyPressed(' ') || inp.keyPressed('Enter')) {
+        const p = inp.released ? Math.max(0.15, power) : 0.6;
+        bob = { x0: TIP.x, y0: TIP.y, x: TIP.x, y: TIP.y, tx: 150 + p * 175, ty: HZ + 8, d: p }; power = 0; pdir = 1; to('cast'); g.sfx('shoot');
+      }
+    } else if (st === 'cast') {
+      const k = Math.min(1, stT / 0.6); bob.x = g.lerp(bob.x0, bob.tx, k); bob.y = g.lerp(bob.y0, bob.ty, k) - Math.sin(k * Math.PI) * 90;
+      if (k >= 1) { to('wait'); bob.wait = g.rand(CFG.biteMin, CFG.biteMax) * (1.15 - bob.d * 0.3); g.sfx('pop'); g.particles(bob.x, bob.ty, { color: ['#fff', '#bae6fd'], n: 12, speed: 120, gravity: 400 }); }
+    } else if (st === 'wait') {
+      bob.y = bob.ty + Math.sin(g.t * 3) * 1.5;
+      if (stT > 0.5 && g.chance(dt * 1.2)) { nib = 0.25; g.sfx('tick'); }
+      if (stT >= bob.wait) { to('bite'); g.sfx('combo'); g.vibrate(80); g.particles(bob.x, bob.ty, { color: ['#fff', CFG.accent], n: 18, speed: 160, gravity: 300 }); }
+    } else if (st === 'bite') {
+      bob.y = bob.ty + 10;
+      if (act) {
+        fish = pickFish(g, bob.d); D = 1; T = 0.3; snapT = 0; slackT = 0; burst = 0; burstT = g.rand(0.6, 1.6);
+        const quick = stT < 0.35; g.addScore(quick ? 10 : 5, bob.x, bob.ty - 30); g.floatText(bob.x, bob.ty - 56, quick ? 'PERFECT HOOK!' : 'HOOKED!', '#fde047', 18); g.sfx('power'); g.shake(4); to('fight');
+      } else if (stT > CFG.hookWindow) { g.floatText(bob.x, bob.ty - 30, 'Too slow!', '#fca5a5', 18); streak = 0; to('ready'); }
+    } else if (st === 'fight') {
+      const f = fish, heavy = 1 + f.u * 0.6;
+      burstT -= dt; if (burstT <= 0) { if (burst > 0) { burst = 0; burstT = g.rand(1, 2.4) / f.fight; } else { burst = g.rand(0.5, 1.2) * f.fight; burstT = burst; g.sfx('hit'); g.shake(3 * f.fight); } }
+      if (burst > 0) burst -= dt;
+      const pulling = burst > 0;
+      if (held) {
+        const target = 0.32 + 0.55 * f.fight * (pulling ? 1.55 : 1) * (0.85 + f.u * 0.3);
+        T += (target - T) * Math.min(1, dt * 2.2); D -= CFG.reelSpeed * dt * (pulling ? 0.25 : 1) / heavy;
+        if (g.frame % 6 === 0) g.sfx('tick');
+      } else { T += (0.04 - T) * Math.min(1, dt * 1.6); D += (pulling ? 0.07 * f.fight : 0.012) * dt; }
+      D = Math.min(1.05, D);
+      snapT = T >= 1 ? snapT + dt : Math.max(0, snapT - dt * 2); slackT = T < 0.12 ? slackT + dt : 0;
+      if (snapT > 0.5) { g.floatText(200, HZ + 40, 'SNAP!', '#f87171', 30); g.particles(bob.x, bob.ty, { color: '#fff', n: 10 }); streak = 0; fish = null; to('ready'); g.loseLife(); return; }
+      if (slackT > 2.6) { g.floatText(200, HZ + 40, 'It shook free…', '#fca5a5', 20); g.sfx('lose'); streak = 0; fish = null; to('ready'); return; }
+      if (D <= 0) {
+        streak++; const best = log[f.name], isNew = !best, pb = best && f.w > best;
+        if (isNew || pb) { log[f.name] = Math.max(best || 0, Math.round(f.w * 100) / 100); g.save('log', log); }
+        const pts = Math.round(f.pts * (0.6 + 0.8 * f.u) * Math.min(2, 1 + streak * 0.15));
+        g.addScore(pts, 180, HZ + 70); g.sfx(f.pts >= 100 ? 'win' : 'coin'); g.flash('#fff', 0.25); g.particles(180, HZ + 120, { color: [f.color, f.belly, '#fff'], n: 30, speed: 220 });
+        if (isNew) g.banner('NEW SPECIES!', f.name); else if (pb) g.banner('PERSONAL BEST!', lbs(f.w));
+        card = { f, pts, t: 0 }; fish = null; to('caught');
+      }
+    } else if (st === 'caught') {
+      card.t += dt; if ((act && card.t > 0.6) || card.t > 2.6) { card = null; to('ready'); }
+    }
+    nib = Math.max(0, nib - dt);
+  },
+  draw(g, ctx) {
+    const X = g.viewX, Y = g.viewY, W = g.viewW, H = g.viewH, day = dayT == null ? 0 : Math.min(1, dayT / CFG.daySeconds), dusk = Math.max(0, (day - 0.6) / 0.4);
+    const sky = ctx.createLinearGradient(0, Y, 0, HZ); sky.addColorStop(0, mix(CFG.skyTop, CFG.nightSky, dusk * 0.85)); sky.addColorStop(1, mix(CFG.skyBottom, '#fb7185', dusk * 0.8)); ctx.fillStyle = sky; ctx.fillRect(X, Y, W, HZ - Y);
+    const sa = Math.PI * (1.05 + day * 0.9); g.circle(180 + Math.cos(sa) * 150, HZ - 10 + Math.sin(sa) * -140 * -1, 26, dusk > 0.3 ? '#fb923c' : '#fef08a');
+    g.backdrop('clouds', { tint: '#ffffff', speed: 0.5, alpha: 0.7 - dusk * 0.4 });
+    ctx.fillStyle = mix(CFG.treeColor, '#020617', dusk * 0.6); ctx.beginPath(); ctx.moveTo(X, HZ);
+    for (let x = 0; x <= W + 12; x += 12) ctx.lineTo(X + x, HZ - 14 - Math.abs(Math.sin(x * 0.07) * 18 + Math.sin(x * 0.023) * 14)); ctx.lineTo(X + W, HZ); ctx.fill();
+    const wg = ctx.createLinearGradient(0, HZ, 0, Y + H); wg.addColorStop(0, CFG.waterTop); wg.addColorStop(1, CFG.waterBottom); ctx.fillStyle = wg; ctx.fillRect(X, HZ, W, Y + H - HZ);
+    for (const s of shadows) { ctx.globalAlpha = 0.18; drawFish(ctx, s.x, s.y, s.s, { color: '#020617', belly: '#020617', pattern: '' }, Math.sign(s.v), g.t * 4 + s.y); ctx.globalAlpha = 1; }
+    g.backdrop('waves', { tint: '#ffffff', horizon: (HZ - Y) / H, alpha: 0.7 });
+    if (!st) return;
+    const by = Math.sin(g.t * 1.6) * 2;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, HZ - 90, 160, 82 + by); ctx.clip(); g.emoji(CFG.boat, 72, HZ - 4 + by, 64); ctx.restore();
+    ctx.fillStyle = CFG.boatColor; ctx.beginPath(); ctx.moveTo(20, HZ - 12 + by); ctx.lineTo(126, HZ - 12 + by); ctx.quadraticCurveTo(120, HZ + 9 + by, 102, HZ + 9 + by); ctx.lineTo(42, HZ + 9 + by); ctx.quadraticCurveTo(26, HZ + 7 + by, 20, HZ - 12 + by); ctx.fill();
+    g.rect(20, HZ - 13 + by, 106, 4, 'rgba(255,255,255,.35)', 2); g.rect(30, HZ + 8, 86, 3, 'rgba(255,255,255,.3)', 2);
+    const bend = st === 'fight' ? T * 26 : 0, tip = { x: TIP.x + bend * 0.4, y: TIP.y + bend };
+    g.line(86, HZ - 26, tip.x, tip.y, '#78350f', 3.5);
+    if (bob && st !== 'ready' && st !== 'caught') {
+      const ex = bob.x, ey = st === 'fight' ? HZ + 30 + (1 - D) * 10 : bob.y;
+      const fx = st === 'fight' ? g.lerp(100, bob.tx, Math.max(0, D)) : ex, fy = st === 'fight' ? HZ + 70 + Math.sin(g.t * 2) * 10 : ey;
+      ctx.strokeStyle = st === 'fight' ? (T > 0.9 ? '#f87171' : T > 0.7 ? '#fde047' : '#ffffffcc') : '#ffffffaa'; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.moveTo(tip.x, tip.y);
+      ctx.quadraticCurveTo((tip.x + fx) / 2, Math.max(tip.y, fy) + (st === 'fight' ? -10 * T : 30), fx, fy); ctx.stroke();
+      if (st === 'fight' && fish) drawFish(ctx, fx, fy, 40 + fish.u * 40 + Math.min(40, fish.max), fish, -1, g.t * (burst > 0 ? 22 : 8));
+      else {
+        const dip = st === 'bite' ? 8 : nib > 0 ? 4 : 0;
+        g.circle(ex, ey + dip, 7, '#ef4444'); g.rect(ex - 7, ey + dip, 14, 4, '#fff', 2); g.ring(ex, bob.ty + 4, 10 + (g.t * 14) % 16, 'rgba(255,255,255,.35)', 1.2);
+        if (st === 'bite') g.text('!', ex, ey - 26 + Math.sin(g.t * 20) * 2, { size: 34, weight: 900, color: '#fde047', glow: '#000' });
+      }
+    }
+    if (g.state !== 'menu') {
+      const left = Math.max(0, CFG.daySeconds - dayT), sp = Object.keys(log || {}).length;
+      g.text('🐟 ' + sp + '/' + CFG.fish.length + '    ⏱ ' + Math.floor(left / 60) + ':' + String(Math.floor(left % 60)).padStart(2, '0'), 180, 92, { size: 15, color: '#ffffffee', glow: 'rgba(0,0,0,.5)' });
+      if (st === 'ready') {
+        g.text(power > 0 ? 'Let go to cast!' : 'Hold, then let go to cast', 200, HZ + 120, { size: 18, color: '#fff', glow: 'rgba(0,0,0,.6)' });
+        if (g.input.down) { g.rect(24, HZ + 150, 16, 120, 'rgba(0,0,0,.35)', 8); g.rect(24, HZ + 150 + 120 * (1 - power), 16, 120 * power, power > 0.8 ? '#f87171' : '#fde047', 8); }
+      }
+      if (st === 'wait') g.text('Wait for the bite…', 200, HZ + 120, { size: 16, color: '#ffffffcc', glow: 'rgba(0,0,0,.6)' });
+      if (st === 'bite') g.text('TAP NOW!', 200, HZ + 120, { size: 26, weight: 900, color: '#fde047', glow: 'rgba(0,0,0,.7)' });
+      if (st === 'fight' && fish) {
+        const bx = 40, by = 520, bw = 280;
+        g.rect(bx, by, bw, 16, 'rgba(0,0,0,.4)', 8); g.rect(bx + bw * 0.25, by, bw * 0.5, 16, 'rgba(74,222,128,.35)', 0); g.rect(bx + bw * 0.88, by, bw * 0.12, 16, 'rgba(248,113,113,.5)', 0);
+        g.rect(bx + bw * Math.min(1, T) - 3, by - 4, 6, 24, T > 0.9 ? '#f87171' : '#fff', 3);
+        g.text('LINE TENSION', 180, by - 14, { size: 12, color: '#ffffffcc' });
+        g.text(burst > 0 ? 'It\'s pulling! Ease off!' : 'Hold to reel in', 180, by + 40, { size: 17, weight: 900, color: burst > 0 ? '#fca5a5' : '#fff', glow: 'rgba(0,0,0,.6)' });
+        g.rect(bx, by + 62, bw, 6, 'rgba(255,255,255,.2)', 3); g.rect(bx, by + 62, bw * (1 - Math.max(0, D)), 6, CFG.accent, 3);
+      }
+      if (card) {
+        const k = Math.min(1, card.t * 4), y = 330 - (1 - k) * 40;
+        ctx.globalAlpha = k; g.rect(40, y - 90, 280, 190, 'rgba(8,20,40,.85)', 22);
+        drawFish(ctx, 180, y - 30, 150, card.f, 1, g.t * 3);
+        g.text(card.f.name, 180, y + 38, { size: 22, weight: 900 }); g.text(lbs(card.f.w) + '   ·   +' + card.pts, 180, y + 70, { size: 16, color: '#fde047' });
+        ctx.globalAlpha = 1;
+      }
+    }
+  },
+});
+</script>
+</body>
+</html>

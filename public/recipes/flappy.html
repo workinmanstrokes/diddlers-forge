@@ -1,0 +1,112 @@
+<!-- app: {"name":"Sky Hopper","emoji":"🐤","color":"#facc15","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sky Hopper</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: names, colors, emoji, speeds, difficulty
+const CFG = {
+  "title": "Sky Hopper",
+  "emoji": "🐤",
+  "help": "Tap to flap through the gaps. Hitting a pipe costs a heart. Grab stars for bonus points!",
+  "accent": "#facc15",
+  "bgTop": "#38bdf8",
+  "bgBottom": "#e0f2fe",
+  "cloudTint": "#ffffff",
+  "pipeColor": "#22c55e",
+  "pipeDark": "#15803d",
+  "groundColor": "#f59e0b",
+  "grassColor": "#65a30d",
+  "music": "happy",
+  "player": "🐤",
+  "playerFlip": false,
+  "bonus": "⭐",
+  "lives": 3,
+  "gravity": 1350,
+  "flap": 420,
+  "speed": 145,
+  "maxSpeed": 230,
+  "gap": 200,
+  "minGap": 138,
+  "pipeSpacing": 215,
+  "rampSeconds": 80
+};
+
+// GAME
+const GROUND = 572, BX = 110;
+let B, pipes, stars, scroll, nextPipe, ready, passed;
+
+function addPipe(g) {
+  const gap = g.ramp(CFG.gap, CFG.minGap, CFG.rampSeconds), top = 110, bot = GROUND - 60;
+  const prev = pipes.length ? pipes[pipes.length - 1].cy : 320, cy = g.clamp(prev + g.rand(-170, 170), top + gap / 2, bot - gap / 2);
+  pipes.push({ x: 400, cy, gap, w: 62, done: false });
+  if (g.chance(0.35)) stars.push({ x: 400 + 31, y: cy + g.rand(-gap * 0.25, gap * 0.25), got: false });
+}
+
+function bump(g) {
+  if (B.inv > 0) return;
+  B.inv = 2.2; passed = 0; g.particles(BX, B.y, { color: ['#fff', CFG.accent, '#fb923c'], n: 18, speed: 200 });
+  g.loseLife();
+}
+
+Kit.game({
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.bgTop, lives: CFG.lives, music: CFG.music, overEmoji: '🪶',
+  init(g) { B = { y: 300, vy: 0, inv: 0, wing: 0 }; pipes = []; stars = []; scroll = 0; nextPipe = 0; ready = true; passed = 0; },
+  update(g, dt) {
+    if (ready) {
+      B.y = 300 + Math.sin(g.t * 4) * 8;
+      if (g.input.action) ready = false; else return;
+    }
+    if (g.input.action) { B.vy = -CFG.flap; B.wing = 1; g.sfx('jump'); g.particles(BX - 10, B.y + 6, { color: '#ffffffaa', n: 4, speed: 60, size: 3 }); }
+    B.vy = Math.min(B.vy + CFG.gravity * dt, 620); B.y += B.vy * dt; B.inv -= dt; B.wing = Math.max(0, B.wing - dt * 5);
+    if (B.y < 20) { B.y = 20; B.vy = 0; }
+    if (B.y > GROUND - 14) { B.y = GROUND - 14; B.vy = -CFG.flap * 0.95; g.shake(4); g.sfx('pop'); passed = 0; g.particles(BX, GROUND, { color: [CFG.grassColor, '#fff'], n: 8, speed: 120 }); }
+
+    const sp = g.ramp(CFG.speed, CFG.maxSpeed, CFG.rampSeconds), dx = sp * dt; scroll += dx; nextPipe -= dx;
+    if (nextPipe <= 0) { addPipe(g); nextPipe = CFG.pipeSpacing; }
+    for (let i = pipes.length - 1; i >= 0; i--) {
+      const p = pipes[i]; p.x -= dx;
+      if (p.x < -80) { pipes.splice(i, 1); continue; }
+      if (!p.done && p.x + p.w < BX - 12) {
+        p.done = true; passed++; const pts = passed >= 10 ? 3 : passed >= 5 ? 2 : 1;
+        g.addScore(pts, BX, B.y - 30); g.sfx(pts > 1 ? 'combo' : 'coin');
+        if (passed === 5 || passed === 10) g.banner(passed === 5 ? 'NICE!' : 'ON FIRE!', 'x' + pts + ' points per gap');
+      }
+      const inX = BX + 13 > p.x && BX - 13 < p.x + p.w, inGap = B.y - 12 > p.cy - p.gap / 2 && B.y + 12 < p.cy + p.gap / 2;
+      if (inX && !inGap && B.inv <= 0) { g.shake(10); g.sfx('hit'); bump(g); if (g.state !== 'play') return; }
+    }
+    for (let i = stars.length - 1; i >= 0; i--) {
+      const s = stars[i]; s.x -= dx;
+      if (s.x < -20) { stars.splice(i, 1); continue; }
+      if (Math.abs(s.x - BX) < 24 && Math.abs(s.y - B.y) < 24) { stars.splice(i, 1); g.addScore(5, s.x, s.y - 16); g.sfx('power'); g.particles(s.x, s.y, { color: [CFG.accent, '#fff'], n: 16, speed: 170 }); }
+    }
+  },
+  draw(g, ctx) {
+    g.backdrop('clouds', { colors: [CFG.bgTop, CFG.bgBottom], tint: CFG.cloudTint, speed: g.state === 'play' && !ready ? 2 : 0.6, alpha: 1.4 });
+    if (!B) return;
+    const X = g.viewX, W = g.viewW, BOT = g.viewY + g.viewH;
+    for (const p of pipes) {
+      const top = p.cy - p.gap / 2, bot = p.cy + p.gap / 2;
+      for (const [y0, y1, capY] of [[g.viewY - 10, top, top - 22], [bot, GROUND, bot]]) {
+        g.rect(p.x + 4, y0, p.w - 8, y1 - y0, CFG.pipeColor); g.rect(p.x + 4, y0, 10, y1 - y0, 'rgba(255,255,255,.25)'); g.rect(p.x + p.w - 16, y0, 12, y1 - y0, CFG.pipeDark);
+        g.rect(p.x - 2, capY, p.w + 4, 22, CFG.pipeColor, 6); g.rect(p.x - 2, capY + 16, p.w + 4, 6, CFG.pipeDark, 3); g.rect(p.x + 4, capY + 3, 10, 12, 'rgba(255,255,255,.35)', 3);
+      }
+    }
+    for (const s of stars) { g.circle(s.x, s.y, 16 + Math.sin(g.t * 6) * 2, CFG.accent + '44'); g.emoji(CFG.bonus, s.x, s.y, 24, Math.sin(g.t * 3) * 0.3); }
+    g.rect(X, GROUND, W, BOT - GROUND, CFG.groundColor); g.rect(X, GROUND, W, 14, CFG.grassColor);
+    const off = scroll % 28; for (let x = X - off; x < X + W; x += 28) g.rect(x, GROUND + 14, 14, 6, 'rgba(0,0,0,.12)');
+    if (ready && g.state === 'play') { g.text('TAP!', BX + 70, B.y, { size: 26, color: '#fff', glow: 'rgba(0,0,0,.4)' }); g.text('👆', BX + 70, B.y + 34, { size: 24 }); }
+    if (B.inv > 0 && Math.floor(g.t * 12) % 2 && g.state === 'play') return;
+    const rot = ready ? 0 : g.clamp(B.vy / 600, -0.5, 1.1);
+    ctx.save(); ctx.translate(BX, B.y); ctx.rotate(rot); ctx.scale((CFG.playerFlip ? -1 : 1) * (1 + B.wing * 0.12), 1 - B.wing * 0.12);
+    g.emoji(CFG.player, 0, 0, 38); ctx.restore();
+  },
+});
+</script>
+</body>
+</html>

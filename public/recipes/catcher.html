@@ -1,0 +1,105 @@
+<!-- app: {"name":"Fruit Frenzy","emoji":"🧺","color":"#fb923c","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Fruit Frenzy</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: names, colors, emoji, speeds, difficulty
+const CFG = {
+  "title": "Fruit Frenzy",
+  "emoji": "🧺",
+  "help": "Drag to move the basket. Catch fruit, dodge bombs! A star starts a frenzy.",
+  "accent": "#fb923c",
+  "bgTop": "#1e1b4b",
+  "bgBottom": "#831843",
+  "glow": "#f472b6",
+  "music": "happy",
+  "player": "🧺",
+  "good": ["🍎", "🍊", "🍇", "🍓", "🍌", "🍉"],
+  "bad": ["💣"],
+  "golden": "⭐",
+  "lives": 3,
+  "fallSpeed": 150,
+  "maxFallSpeed": 330,
+  "spawnEvery": 0.9,
+  "minSpawnEvery": 0.36,
+  "badChance": 0.24,
+  "goldenChance": 0.04,
+  "frenzySeconds": 6,
+  "rampSeconds": 75,
+  "pointsPerCatch": 10
+};
+
+// GAME
+const BY = 560;
+let bx, tx, items, spawnT, combo, frenzy, splats;
+
+function spawn(g) {
+  const sp = g.ramp(CFG.fallSpeed, CFG.maxFallSpeed, CFG.rampSeconds) * g.rand(0.85, 1.2);
+  const r = Math.random(), kind = frenzy > 0 || (g.t < 1.5 && !items.length) ? 'good' : r < CFG.goldenChance ? 'gold' : r < CFG.goldenChance + CFG.badChance * Math.min(1, 0.4 + g.t / 40) ? 'bad' : 'good';
+  const em = kind === 'gold' ? CFG.golden : kind === 'bad' ? g.pick(CFG.bad) : g.pick(CFG.good);
+  const first = g.t < 1.5 && !items.length;
+  items.push({ x: first ? bx : g.rand(30, 330), y: -30, vy: sp, vx: first ? 0 : g.rand(-20, 20), rot: g.rand(0, 6), vr: g.rand(-3, 3), kind, em });
+}
+
+Kit.game({
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.bgTop, lives: CFG.lives, music: CFG.music,
+  init(g) { bx = tx = 180; items = []; spawnT = 0.5; combo = 0; frenzy = 0; splats = []; },
+  update(g, dt) {
+    const inp = g.input;
+    if (inp.down) tx = inp.x; else if (inp.axis.x) tx = bx + inp.axis.x * 420 * dt;
+    tx = g.clamp(tx, 34, 326); bx = g.lerp(bx, tx, Math.min(1, dt * 18));
+    frenzy -= dt;
+    spawnT -= dt;
+    if (spawnT <= 0) { spawn(g); spawnT = g.ramp(CFG.spawnEvery, CFG.minSpawnEvery, CFG.rampSeconds) * (frenzy > 0 ? 0.45 : 1); }
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]; it.y += it.vy * dt; it.x = g.clamp(it.x + it.vx * dt, 20, 340); it.rot += it.vr * dt;
+      if (it.y > BY - 26 && it.y < BY + 6 && Math.abs(it.x - bx) < 40) {
+        items.splice(i, 1);
+        if (it.kind === 'bad') {
+          combo = 0; g.shake(14); g.flash('#ff2d55', 0.35); g.sfx('explode'); g.particles(it.x, it.y, { color: ['#fb923c', '#fde047', '#555'], n: 30, speed: 260 });
+          g.loseLife(); if (g.state !== 'play') return;
+        } else if (it.kind === 'gold') {
+          frenzy = CFG.frenzySeconds; g.banner('FRENZY!', 'Everything is fruit'); g.sfx('power'); g.flash(CFG.accent, 0.3); g.particles(it.x, it.y, { color: [CFG.accent, '#fff', '#fde047'], n: 34, speed: 260 });
+          for (const o of items) if (o.kind === 'bad') { o.kind = 'good'; o.em = g.pick(CFG.good); }
+        } else {
+          combo++; const mult = Math.min(5, 1 + Math.floor(combo / 8)) * (frenzy > 0 ? 2 : 1);
+          g.addScore(CFG.pointsPerCatch * mult, it.x, it.y - 30); g.sfx(combo % 8 === 0 ? 'combo' : 'pop'); g.vibrate(10);
+          g.particles(it.x, BY - 20, { color: [CFG.accent, '#fff', CFG.glow], n: 10, speed: 140 });
+          if (combo % 8 === 0) g.floatText(bx, BY - 70, 'COMBO x' + Math.min(5, 1 + combo / 8), '#fde047', 24);
+        }
+        continue;
+      }
+      if (it.y > 680) {
+        items.splice(i, 1);
+        if (it.kind === 'good') { if (combo >= 5) g.floatText(it.x, 600, 'combo lost', '#fca5a5', 16); combo = 0; splats.push({ x: it.x, t: 0.8 }); }
+      }
+    }
+    for (let i = splats.length - 1; i >= 0; i--) { splats[i].t -= dt; if (splats[i].t <= 0) splats.splice(i, 1); }
+  },
+  draw(g, ctx) {
+    g.backdrop('bokeh', { colors: frenzy > 0 ? [CFG.bgBottom, CFG.accent] : [CFG.bgTop, CFG.bgBottom], tint: [CFG.glow, CFG.accent, '#ffffff'], speed: 1 });
+    if (bx == null) return;
+    g.rect(g.viewX, BY + 30, g.viewW, g.viewY + g.viewH - BY - 30, 'rgba(0,0,0,.25)');
+    for (const s of splats) g.circle(s.x, BY + 34, 18 * (1 - s.t), 'rgba(255,255,255,' + (s.t * 0.3).toFixed(2) + ')');
+    for (const it of items) {
+      if (it.kind === 'gold') g.circle(it.x, it.y, 22 + Math.sin(g.t * 10) * 3, '#fde04755');
+      if (it.kind === 'bad') g.circle(it.x, it.y, 20, 'rgba(255,40,60,.22)');
+      g.emoji(it.em, it.x, it.y, it.kind === 'gold' ? 34 : 36, it.rot);
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    g.circle(bx, BY + 8, 46, (frenzy > 0 ? CFG.accent : CFG.glow) + '33');
+    ctx.globalCompositeOperation = 'source-over';
+    g.emoji(CFG.player, bx, BY, 62);
+    if (frenzy > 0 && g.state === 'play') { g.rect(110, 82, 140, 6, 'rgba(255,255,255,.2)', 3); g.rect(110, 82, 140 * frenzy / CFG.frenzySeconds, 6, '#fde047', 3); }
+    if (combo >= 3 && g.state === 'play') g.text('x' + Math.min(5, 1 + Math.floor(combo / 8)) + ' · ' + combo + ' in a row', 180, BY + 52, { size: 15, color: '#ffffffcc' });
+  },
+});
+</script>
+</body>
+</html>

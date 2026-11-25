@@ -1,0 +1,158 @@
+<!-- app: {"name":"Idle Tycoon","emoji":"💰","color":"#fbbf24","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Idle Tycoon</title>
+<script src="kit/game.js"></script>
+<style>
+#shop{position:fixed;left:0;right:0;bottom:0;height:46%;max-height:420px;z-index:6;display:none;flex-direction:column;background:var(--panel);border-top:1px solid rgba(255,255,255,.16);border-radius:22px 22px 0 0;box-shadow:0 -12px 30px rgba(0,0,0,.45);padding:10px 12px calc(10px + env(safe-area-inset-bottom));font-family:ui-rounded,system-ui,sans-serif;color:#fff;box-sizing:border-box}
+#shop h3{margin:2px 4px 8px;font-size:13px;letter-spacing:.1em;opacity:.8;display:flex;justify-content:space-between}
+#shop .list{overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:8px;overscroll-behavior:contain;touch-action:pan-y;padding-bottom:6px}
+#shop .row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.08)}
+#shop .row i{font-style:normal;font-size:28px;width:36px;text-align:center;line-height:1}
+#shop .m{flex:1;min-width:0}#shop .m b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#shop .m small{display:block;font-size:12px;opacity:.8;margin-top:2px}
+#shop button{min-width:92px;min-height:44px;padding:0 10px;border:0;border-radius:12px;font:inherit;font-weight:900;font-size:14px;color:#1c1300;background:linear-gradient(180deg,#fde68a,var(--accent));box-shadow:0 3px 0 rgba(0,0,0,.35);cursor:pointer}
+#shop button:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.35)}
+#shop button.off{filter:grayscale(.9) brightness(.65)}
+#shop .row.star{background:linear-gradient(90deg,rgba(250,204,21,.25),rgba(255,255,255,.06))}
+</style>
+</head>
+<body>
+<div id="shop"><h3><span>UPGRADES</span><span id="rate"></span></h3><div class="list"></div></div>
+<script>
+// TUNING — change these first: names, colors, emoji, prices, earnings
+const CFG = {
+  "title": "Idle Tycoon",
+  "emoji": "💰",
+  "help": "Tap the big coin to earn. Buy upgrades so money rolls in, even while you're away!",
+  "accent": "#fbbf24",
+  "bgTop": "#052e16",
+  "bgBottom": "#14532d",
+  "panelColor": "#03180dee",
+  "coinColor": "#facc15",
+  "coinRim": "#b45309",
+  "tapEmoji": "",
+  "currency": "$",
+  "golden": "🌟",
+  "music": "happy",
+  "earners": [
+    { "name": "Lemonade Stand", "icon": "🍋", "cost": 15, "rate": 0.5 },
+    { "name": "Food Truck", "icon": "🚚", "cost": 120, "rate": 4 },
+    { "name": "Coffee Shop", "icon": "☕", "cost": 1100, "rate": 30 },
+    { "name": "Arcade", "icon": "🕹️", "cost": 12000, "rate": 260 },
+    { "name": "Factory", "icon": "🏭", "cost": 130000, "rate": 2100 },
+    { "name": "Bank", "icon": "🏦", "cost": 1400000, "rate": 16000 },
+    { "name": "Rocket Company", "icon": "🚀", "cost": 20000000, "rate": 140000 }
+  ],
+  "tapPower": 1,
+  "costGrowth": 1.15,
+  "goldenEvery": 45,
+  "frenzyMultiplier": 7,
+  "prestigeAt": 1000000,
+  "offlineHours": 8
+};
+
+// GAME
+const CX = 180, CY = 210, CR = 82;
+const money = (n) => CFG.currency + (n < 100 && n % 1 ? n.toFixed(1) : Kit.fmt(n));
+let S, squash, gold, frenzy, saveT, uiT, welcome, rows, shop, list, tapCount;
+
+const mult = () => (1 + S.stars * 0.25) * (frenzy > 0 ? CFG.frenzyMultiplier : 1);
+const rate = () => CFG.earners.reduce((a, e, i) => a + (S.own[i] || 0) * e.rate, 0) * mult();
+const cost = (i) => Math.ceil(CFG.earners[i].cost * Math.pow(CFG.costGrowth, S.own[i] || 0));
+const tapCost = () => Math.ceil(50 * Math.pow(6, S.tapLvl));
+const tapValue = () => (CFG.tapPower * Math.pow(2, S.tapLvl) + rate() * 0.04 / (frenzy > 0 ? CFG.frenzyMultiplier : 1)) * mult();
+
+function save(g) { S.cash = g.score; S.t = Date.now(); g.save('state', S); }
+function earn(g, n) { g.score += n; S.total += n; }
+function buildShop(g) {
+  shop = document.getElementById('shop'); list = shop.querySelector('.list'); list.innerHTML = ''; rows = [];
+  const add = (icon, buy, star) => {
+    const row = document.createElement('div'); row.className = 'row' + (star ? ' star' : '');
+    row.innerHTML = '<i></i><div class="m"><b></b><small></small></div><button type="button"></button>';
+    row.querySelector('i').textContent = icon; row.querySelector('button').addEventListener('click', () => buy(g)); list.appendChild(row);
+    return { row, b: row.querySelector('b'), small: row.querySelector('small'), btn: row.querySelector('button') };
+  };
+  rows.push({ kind: 'tap', ...add('👆', (g) => { const c = tapCost(); if (g.score < c) return need(g, c); g.score -= c; S.tapLvl++; g.sfx('power'); g.floatText(CX, CY - CR - 20, 'TAPS x2!', CFG.accent, 22); save(g); }) });
+  CFG.earners.forEach((e, i) => rows.push({ kind: 'earner', i, ...add(e.icon, (g) => { const c = cost(i); if (g.score < c) return need(g, c); g.score -= c; S.own[i] = (S.own[i] || 0) + 1; g.sfx('coin'); g.particles(CX, CY, { color: [CFG.accent, '#fff'], n: 16, speed: 200 }); save(g); }) }));
+  rows.push({ kind: 'star', ...add('⭐', (g) => {
+    if (S.total < CFG.prestigeAt) return need(g, CFG.prestigeAt - S.total + g.score);
+    g.choose([{ icon: '⭐', title: 'Prestige now', desc: 'Start over with +1 star (+25% earnings forever)' }, { icon: '✋', title: 'Not yet', desc: 'Keep growing this run' }], (k) => {
+      if (k !== 0) return; S.stars++; S.own = []; S.tapLvl = 0; S.total = 0; g.score = 0; g.banner('PRESTIGE!', S.stars + ' star' + (S.stars > 1 ? 's' : '')); g.sfx('win'); g.flash(CFG.accent, 0.4); save(g);
+    }, { title: 'Prestige?', sub: 'Your businesses reset, but stars make everything earn more.' });
+  }, true) });
+}
+function need(g, c) { g.sfx('hit'); g.floatText(CX, CY + CR + 26, 'Need ' + money(c - g.score) + ' more', '#fca5a5', 16); }
+function renderShop(g) {
+  const r = rate(); document.getElementById('rate').textContent = money(r) + '/sec';
+  for (const x of rows) {
+    if (x.kind === 'tap') { x.b.textContent = 'Stronger taps'; x.small.textContent = '+' + money(tapValue()) + ' per tap now'; x.btn.textContent = money(tapCost()); x.btn.classList.toggle('off', g.score < tapCost()); }
+    else if (x.kind === 'earner') {
+      const e = CFG.earners[x.i], own = S.own[x.i] || 0, locked = x.i > 0 && !(S.own[x.i - 1] > 0) && own === 0;
+      x.row.style.display = locked && x.i > 1 && !(S.own[x.i - 2] > 0) ? 'none' : '';
+      x.b.textContent = (locked ? '🔒 ' : '') + e.name + (own ? ' ×' + own : '');
+      x.small.textContent = '+' + money(e.rate * mult()) + '/sec each'; x.btn.textContent = money(cost(x.i)); x.btn.classList.toggle('off', g.score < cost(x.i));
+    } else { x.row.style.display = S.total >= CFG.prestigeAt * 0.5 || S.stars ? '' : 'none'; x.b.textContent = 'Prestige' + (S.stars ? ' (' + S.stars + '★)' : ''); x.small.textContent = 'Reset for +25% forever'; x.btn.textContent = S.total >= CFG.prestigeAt ? 'Go!' : money(CFG.prestigeAt); x.btn.classList.toggle('off', S.total < CFG.prestigeAt); }
+  }
+}
+
+Kit.game({
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.bgTop, music: CFG.music, hud: true,
+  formatScore: (n) => money(n), overEmoji: '💸',
+  init(g) {
+    document.documentElement.style.setProperty('--panel', CFG.panelColor); document.documentElement.style.setProperty('--accent', CFG.accent);
+    S = Object.assign({ cash: 0, own: [], tapLvl: 0, stars: 0, total: 0, t: 0 }, g.load('state', {}));
+    g.score = S.cash || 0; squash = 0; gold = null; frenzy = 0; saveT = 2; uiT = 0; tapCount = 0;
+    welcome = 0;
+    if (S.t) { const secs = Math.min(CFG.offlineHours * 3600, (Date.now() - S.t) / 1000), r = rate(); if (r > 0 && secs > 30) { welcome = r * secs * 0.5; earn(g, welcome); } }
+    S.nextGold = CFG.goldenEvery * 0.5;
+    if (!rows) buildShop(g);
+    if (!g.data.vis) { g.data.vis = 1; document.addEventListener('visibilitychange', () => { if (document.hidden && S) save(g); }); }
+  },
+  update(g, dt) {
+    if (welcome) { g.banner('Welcome back!', '+' + money(welcome) + ' while you were away'); g.sfx('win'); welcome = 0; }
+    frenzy -= dt; squash = Math.max(0, squash - dt * 6);
+    earn(g, rate() * dt);
+    const inp = g.input;
+    if ((inp.pressed && g.dist(inp, { x: CX, y: CY }) < CR + 14) || inp.keyPressed(' ') || inp.keyPressed('Enter')) {
+      const v = tapValue(); earn(g, v); squash = 1; tapCount++;
+      const px = inp.pressed ? inp.x : CX, py = inp.pressed ? inp.y : CY;
+      g.floatText(px + g.rand(-10, 10), py - 24, '+' + money(v), frenzy > 0 ? '#fde047' : '#fff', 20);
+      g.particles(px, py, { color: [CFG.coinColor, '#fff'], n: 6, speed: 170, gravity: 500 });
+      if (tapCount % 2) g.sfx('coin'); g.vibrate(8);
+    }
+    if (inp.pressed && gold && g.dist(inp, gold) < 34) {
+      frenzy = 10; gold = null; g.banner('FRENZY!', 'x' + CFG.frenzyMultiplier + ' for 10 seconds'); g.sfx('power'); g.flash(CFG.accent, 0.35); g.shake(6);
+    }
+    S.nextGold -= dt;
+    if (!gold && S.nextGold <= 0) { gold = { x: g.rand(60, 300), y: g.rand(110, 330), t: 8, vx: g.rand(-20, 20) }; S.nextGold = CFG.goldenEvery + g.rand(-10, 10); }
+    if (gold) { gold.t -= dt; gold.x = g.clamp(gold.x + gold.vx * dt, 40, 320); gold.y += Math.sin(g.t * 2) * 0.3; if (gold.t <= 0) gold = null; }
+    saveT -= dt; if (saveT <= 0) { saveT = 3; save(g); }
+  },
+  draw(g, ctx) {
+    g.backdrop('bokeh', { colors: frenzy > 0 ? [CFG.bgBottom, CFG.accent] : [CFG.bgTop, CFG.bgBottom], tint: [CFG.accent, '#ffffff'], speed: frenzy > 0 ? 3 : 0.6, alpha: 0.45 });
+    if (!S) return;
+    const want = g.state === 'menu' ? 'none' : 'flex';
+    if (shop && shop.style.display !== want) shop.style.display = want;
+    uiT -= g.dt; if (uiT <= 0 && rows) { uiT = 0.2; renderShop(g); }
+    const owned = []; CFG.earners.forEach((e, i) => { for (let k = 0; k < Math.min(3, S.own[i] || 0); k++) owned.push(e.icon); });
+    owned.slice(0, 14).forEach((ic, i, a) => { const an = g.t * 0.5 + i * 6.283 / a.length; g.emoji(ic, CX + Math.cos(an) * (CR + 40), CY + Math.sin(an) * (CR + 34), 22); });
+    ctx.globalCompositeOperation = 'lighter'; g.circle(CX, CY, CR + 18 + Math.sin(g.t * 3) * 4, CFG.accent + (frenzy > 0 ? '55' : '22')); ctx.globalCompositeOperation = 'source-over';
+    const s = 1 - squash * 0.08 + Math.sin(g.t * 2) * 0.01;
+    ctx.save(); ctx.translate(CX, CY); ctx.scale(s, s);
+    if (CFG.tapEmoji) g.emoji(CFG.tapEmoji, 0, 0, CR * 1.9);
+    else {
+      g.circle(0, 6, CR, CFG.coinRim); g.circle(0, 0, CR, CFG.coinColor); g.ring(0, 0, CR * 0.8, CFG.coinRim + 'aa', 4);
+      g.circle(-CR * 0.3, -CR * 0.35, CR * 0.28, 'rgba(255,255,255,.35)');
+      g.text(CFG.currency, 0, 4, { size: CR * 1.05, weight: 900, color: CFG.coinRim });
+    }
+    ctx.restore();
+    if (gold) { g.circle(gold.x, gold.y, 26 + Math.sin(g.t * 8) * 3, '#fde04766'); g.emoji(CFG.golden, gold.x, gold.y, 38, Math.sin(g.t * 4) * 0.3); }
+    if (g.state !== 'menu') g.text(money(rate()) + ' per second' + (S.stars ? '  ·  ' + S.stars + '★' : ''), CX, CY + CR + 26, { size: 16, color: '#ffffffd0' });
+  },
+});
+</script>
+</body>
+</html>

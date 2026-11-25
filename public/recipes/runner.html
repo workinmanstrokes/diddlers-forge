@@ -1,0 +1,143 @@
+<!-- app: {"name":"Neon Runner","emoji":"🏃","color":"#f472b6","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Neon Runner</title>
+<script src="kit/game.js"></script>
+</head>
+<body>
+<script>
+// TUNING — change these first: names, colors, emoji, speeds, difficulty
+const CFG = {
+  "title": "Neon Runner",
+  "emoji": "🏃",
+  "help": "Tap to jump. Tap again in the air to double jump. Grab coins, dodge everything else!",
+  "accent": "#f472b6",
+  "bgTop": "#0b0221",
+  "bgBottom": "#3b0a5a",
+  "sun": "#fb7185",
+  "gridColor": "#e879f9",
+  "groundColor": "#14052b",
+  "music": "arcade",
+  "player": "🏃",
+  "playerFlip": true,
+  "obstacles": ["🌵", "🔥", "🧱"],
+  "hazardGlow": "#f43f5e",
+  "flyer": "🦇",
+  "coinColor": "#fde047",
+  "lives": 3,
+  "startSpeed": 230,
+  "maxSpeed": 470,
+  "speedRampSeconds": 90,
+  "jump": 640,
+  "gravity": 1750,
+  "doubleJump": true,
+  "coinValue": 10,
+  "firstObstacleAt": 3,
+  "pitsAfter": 25
+};
+
+// GAME
+const GROUND = 480, PX = 92;
+let P, things, coins, pits, speed, dist, nextAt, coinRun, trail, meters;
+
+function spawn(g) {
+  const t = g.t, gapMul = Math.sqrt(speed / CFG.startSpeed) * (1.4 - 0.4 * Math.min(1, t / 25));
+  const r = Math.random();
+  if (t > CFG.pitsAfter && r < 0.22) {
+    const w = g.rand(70, 70 + Math.min(50, t)); pits.push({ x: 400, w });
+    for (let k = 0; k < 4; k++) coins.push({ x: 400 + w / 2 - 36 + k * 24, y: GROUND - 90 - Math.sin(k / 3 * Math.PI) * 30, got: 0 });
+    nextAt = dist + w + g.rand(220, 300) * gapMul; return;
+  }
+  if (t > 10 && r < 0.42) { things.push({ x: 400, y: GROUND - 92 + g.rand(-8, 8), r: 15, fly: 1, em: CFG.flyer, ph: g.rand(0, 6) }); nextAt = dist + g.rand(200, 300) * gapMul; return; }
+  const dbl = t > 18 && r < 0.6, em = g.pick(CFG.obstacles);
+  things.push({ x: 400, y: GROUND - 18, r: 15, em });
+  if (dbl) things.push({ x: 432, y: GROUND - 18, r: 15, em });
+  if (g.chance(0.55)) for (let k = 0; k < 5; k++) coins.push({ x: 400 - 52 + k * 26 + (dbl ? 16 : 0), y: GROUND - 70 - Math.sin(k / 4 * Math.PI) * (dbl ? 80 : 58), got: 0 });
+  else for (let k = 0; k < 4; k++) coins.push({ x: 400 + 150 + k * 24, y: GROUND - 22, got: 0 });
+  nextAt = dist + g.rand(250, 400) * gapMul + (dbl ? 60 : 0);
+}
+
+function hit(g, x, y) {
+  if (P.inv > 0) return;
+  P.inv = 2; coinRun = 0; g.particles(x, y, { color: [CFG.accent, '#fff', CFG.sun], n: 22, speed: 220 });
+  g.loseLife();
+}
+
+Kit.game({
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.bgTop, lives: CFG.lives, music: CFG.music,
+  init(g) {
+    P = { y: GROUND, vy: 0, ground: true, jumps: 0, inv: 0, rot: 0, squash: 0, fall: false };
+    things = []; coins = []; pits = []; speed = CFG.startSpeed; dist = 0; coinRun = 0; trail = []; meters = 0;
+    nextAt = CFG.firstObstacleAt * CFG.startSpeed - (400 - PX);
+  },
+  update(g, dt) {
+    speed = g.ramp(CFG.startSpeed, CFG.maxSpeed, CFG.speedRampSeconds);
+    const dx = speed * dt; dist += dx; meters += dx / 40;
+    if (meters >= 10) { meters -= 10; g.score += 10; }
+    if (dist >= nextAt) spawn(g);
+
+    if (g.input.action && !P.fall) {
+      if (P.ground) { P.vy = -CFG.jump; P.ground = false; P.jumps = 1; g.sfx('jump'); g.particles(PX, GROUND, { color: '#ffffff88', n: 6, speed: 80, gravity: 300 }); }
+      else if (CFG.doubleJump && P.jumps < 2) { P.vy = -CFG.jump * 0.86; P.jumps = 2; g.sfx('jump'); g.particles(PX, P.y - 20, { color: CFG.accent, n: 12, speed: 140 }); }
+    }
+    const held = g.input.down || g.input.key(' ') || g.input.key('ArrowUp') || g.input.key('w') || g.input.key('Enter');
+    if (!held && P.vy < -200 && !P.ground) P.vy += CFG.gravity * 0.9 * dt;
+    P.vy += CFG.gravity * dt; P.y += P.vy * dt; P.inv -= dt; P.squash = Math.max(0, P.squash - dt * 4);
+    const overPit = pits.some((p) => PX > p.x + 8 && PX < p.x + p.w - 8);
+    if (P.y >= GROUND && !P.fall) {
+      if (overPit && P.y < GROUND + 30) { P.fall = true; P.ground = false; }
+      else { if (!P.ground) { P.squash = 1; g.particles(PX, GROUND, { color: '#ffffff66', n: 5, speed: 60 }); } P.y = GROUND; P.vy = 0; P.ground = true; P.jumps = 0; }
+    }
+    if (P.fall && P.y > 640) { P.fall = false; P.y = GROUND - 120; P.vy = -200; pits = pits.filter((p) => p.x + p.w < PX - 20 || p.x > PX + 200); P.inv = 0; hit(g, PX, 600); if (g.state !== 'play') return; }
+    P.rot = P.ground ? 0 : P.rot + dt * (P.jumps === 2 ? 14 : 0);
+
+    for (let i = things.length - 1; i >= 0; i--) {
+      const o = things[i]; o.x -= dx;
+      if (o.fly) o.y += Math.sin(g.t * 5 + o.ph) * 0.8;
+      if (o.x < -40) { things.splice(i, 1); g.addScore(5); continue; }
+      if (Math.abs(o.x - PX) < o.r + 11 && Math.abs(o.y - (P.y - 20)) < o.r + 16) { things.splice(i, 1); g.shake(10); g.sfx('explode'); hit(g, o.x, o.y); if (g.state !== 'play') return; }
+    }
+    for (let i = coins.length - 1; i >= 0; i--) {
+      const c = coins[i]; c.x -= dx;
+      if (c.x < -20) { coins.splice(i, 1); continue; }
+      if (Math.abs(c.x - PX) < 20 && Math.abs(c.y - (P.y - 20)) < 26) {
+        coins.splice(i, 1); coinRun++;
+        const m = coinRun >= 20 ? 3 : coinRun >= 10 ? 2 : 1;
+        g.addScore(CFG.coinValue * m, c.x, c.y - 10); g.sfx(m > 1 ? 'combo' : 'coin'); g.particles(c.x, c.y, { color: ['#fde047', '#fff'], n: 6, speed: 90 });
+        if (coinRun === 10 || coinRun === 20) g.banner('x' + m + ' COINS!');
+      }
+    }
+    for (let i = pits.length - 1; i >= 0; i--) { pits[i].x -= dx; if (pits[i].x + pits[i].w < -20) pits.splice(i, 1); }
+    trail.push({ x: PX, y: P.y - 20 }); if (trail.length > 10) trail.shift(); for (const t of trail) t.x -= dx;
+  },
+  draw(g, ctx) {
+    g.backdrop('stars', { colors: [CFG.bgTop, CFG.bgBottom], speed: 0.15, alpha: 0.8 });
+    g.backdrop('grid', { tint: CFG.gridColor, sun: CFG.sun, horizon: 0.6, speed: speed ? speed / CFG.startSpeed : 1, ground: CFG.groundColor });
+    if (!P) return;
+    const X = g.viewX, W = g.viewW, B = g.viewY + g.viewH;
+    g.rect(X, GROUND, W, B - GROUND, CFG.groundColor);
+    for (const p of pits) g.rect(p.x, GROUND - 1, p.w, B - GROUND + 1, '#000000');
+    ctx.globalCompositeOperation = 'lighter';
+    let x0 = X;
+    for (const p of pits.slice().sort((a, b) => a.x - b.x)) { if (p.x > x0) g.line(x0, GROUND, p.x, GROUND, CFG.accent, 3); x0 = p.x + p.w; }
+    g.line(x0, GROUND, X + W, GROUND, CFG.accent, 3);
+    const off = (dist * 0.9) % 40;
+    for (let x = X - off; x < X + W; x += 40) g.line(x, GROUND + 14, x + 18, GROUND + 14, CFG.accent + '44', 2);
+    for (let i = 0; i < trail.length; i++) g.circle(trail[i].x, trail[i].y, 3 + i * 0.6, CFG.accent + '22');
+    for (const c of coins) g.circle(c.x, c.y, 13, CFG.coinColor + '33');
+    for (const o of things) g.circle(o.x, o.y, 24, CFG.hazardGlow + '30');
+    ctx.globalCompositeOperation = 'source-over';
+    for (const c of coins) { const w = Math.abs(Math.cos(g.t * 4 + c.x * 0.03)) * 8 + 1.5; ctx.fillStyle = CFG.coinColor; ctx.beginPath(); ctx.ellipse(c.x, c.y, w, 9.5, 0, 0, 6.283); ctx.fill(); g.rect(c.x - w * 0.35, c.y - 6, Math.max(1, w * 0.3), 12, 'rgba(255,255,255,.7)', 1); }
+    for (const o of things) { g.circle(o.x, GROUND - 2, o.fly ? 8 : 14, 'rgba(0,0,0,.35)'); g.emoji(o.em, o.x, o.y, 34, o.fly ? Math.sin(g.t * 9) * 0.2 : 0); }
+    if (P.inv > 0 && Math.floor(g.t * 12) % 2 && g.state === 'play') return;
+    const bob = P.ground ? Math.abs(Math.sin(g.t * speed / 22)) * 3 : 0, sq = P.squash * 0.25;
+    ctx.save(); ctx.translate(PX, P.y - 20 - bob); ctx.rotate(-P.rot); ctx.scale((CFG.playerFlip ? -1 : 1) * (1 + sq), 1 - sq);
+    g.emoji(CFG.player, 0, 0, 40); ctx.restore();
+  },
+});
+</script>
+</body>
+</html>

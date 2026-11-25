@@ -1,0 +1,114 @@
+<!-- app: {"name":"Habit Streaks","emoji":"✅","color":"#22c55e","type":"app","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Habit Streaks</title>
+<link rel="stylesheet" href="kit/ui.css">
+<script src="kit/app.js"></script>
+<style>
+.ring{position:relative;width:86px;height:86px;flex:none}.ring svg{transform:rotate(-90deg)}.ring b{position:absolute;inset:0;display:grid;place-items:center;font-size:20px}
+.dots{display:flex;gap:4px;margin-top:6px}.dots i{width:9px;height:9px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line)}.dots i.on{background:var(--accent);border-color:transparent}
+.check{width:52px;height:52px;border-radius:16px;border:2px solid var(--line);background:var(--bg-2);font-size:24px;cursor:pointer;flex:none;transition:transform .1s,background .2s}
+.check.on{background:var(--accent);border-color:transparent;color:#fff;box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 45%,transparent)}.check:active{transform:scale(.9)}
+.del{background:none;border:0;color:var(--muted);font-size:18px;min-width:44px;min-height:44px;cursor:pointer}
+.emojis{display:flex;gap:6px;flex-wrap:wrap}.emojis .chip{font-size:18px;min-height:40px;min-width:44px;justify-content:center}
+.pop{position:fixed;left:50%;top:40%;font-size:72px;pointer-events:none;animation:pop 1.1s ease-out forwards;z-index:99}
+@keyframes pop{0%{transform:translate(-50%,0) scale(.3);opacity:0}20%{transform:translate(-50%,-10px) scale(1.2);opacity:1}100%{transform:translate(-50%,-80px) scale(1);opacity:0}}
+.bar{height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));border-radius:inherit}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar"><div class="title" id="title"></div><button class="btn icon ghost" id="theme" aria-label="Light or dark">🌗</button></header>
+  <main class="content">
+    <section data-page="today" class="stack">
+      <div class="card row"><div class="ring" id="ring"></div><div class="grow"><h2 id="dayTitle">Today</h2><div class="muted" id="daySub"></div></div></div>
+      <div class="list" id="habits"></div>
+      <form class="card col" id="addForm">
+        <div class="field"><label for="hName">New habit</label><input class="input" id="hName" placeholder="e.g. Stretch for 5 minutes" maxlength="40" autocomplete="off"></div>
+        <div class="emojis" id="emojis"></div>
+        <button class="btn primary block" type="submit">＋ Add habit</button>
+      </form>
+    </section>
+    <section data-page="stats" class="stack">
+      <div class="grid"><div class="card stat"><span class="value" id="sBest">0</span><span class="label">Best streak</span></div><div class="card stat"><span class="value" id="sRate">0%</span><span class="label">Last 30 days</span></div></div>
+      <div class="card"><h3>By habit</h3><div id="perHabit" class="col"></div></div>
+    </section>
+  </main>
+  <nav class="tabbar"><button data-tab="today" class="active">✅<span>Today</span></button><button data-tab="stats">📊<span>Stats</span></button></nav>
+</div>
+<script>
+// TUNING — change these first: names, colors, starter habits, emoji choices
+const CFG = {
+  "title": "Habit Streaks",
+  "emoji": "✅",
+  "accent": "#22c55e",
+  "accent2": "#22d3ee",
+  "light": false,
+  "starterHabits": [{ "name": "Drink water", "emoji": "💧" }, { "name": "Walk 20 minutes", "emoji": "🚶" }, { "name": "Read 10 pages", "emoji": "📖" }],
+  "emojiChoices": ["💧", "🚶", "📖", "🧘", "💪", "🥗", "😴", "🎸", "✍️", "🧹"],
+  "milestones": [3, 7, 14, 30, 60, 100]
+};
+
+// APP
+const { $, h, store, toast, confirm, sfx, haptic, uid } = Kit.app;
+const db = store('habits', CFG.starterHabits.map((x) => ({ id: uid(), name: x.name, emoji: x.emoji, days: {} })));
+const prefs = store('prefs', { light: CFG.light });
+let pick = CFG.emojiChoices[0];
+const key = (d) => { const x = new Date(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+const dayAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return key(d); };
+function streak(hb) { let n = 0, i = hb.days[dayAgo(0)] ? 0 : 1; while (hb.days[dayAgo(i)]) { n++; i++; } return n; }
+function best(hb) { const ks = Object.keys(hb.days).filter((k) => hb.days[k]).sort(); let b = 0, run = 0, prev = null; for (const k of ks) { const d = new Date(k + 'T12:00'); run = prev && (d - prev) / 864e5 < 1.5 ? run + 1 : 1; b = Math.max(b, run); prev = d; } return b; }
+function ring(p) { const r = 36, c = 2 * Math.PI * r; return `<svg width="86" height="86"><circle cx="43" cy="43" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="9"/><circle cx="43" cy="43" r="${r}" fill="none" stroke="var(--accent)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p)}" style="transition:stroke-dashoffset .4s"/></svg><b>${Math.round(p * 100)}%</b>`; }
+function celebrate(icon) { const el = h('div', { class: 'pop' }, icon); document.body.appendChild(el); setTimeout(() => el.remove(), 1200); }
+
+function render() {
+  const list = db.get(), today = dayAgo(0), done = list.filter((x) => x.days[today]).length;
+  $('#ring').innerHTML = ring(list.length ? done / list.length : 0);
+  $('#dayTitle').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  $('#daySub').textContent = !list.length ? 'Add your first habit below' : done === list.length ? 'Everything done today 🎉' : done + ' of ' + list.length + ' done';
+  const box = $('#habits'); box.innerHTML = '';
+  if (!list.length) box.appendChild(h('div', { class: 'empty' }, h('div', { style: 'font-size:40px' }, '🌱'), 'No habits yet. Start small!'));
+  for (const hb of list) {
+    const s = streak(hb), on = !!hb.days[today];
+    box.appendChild(h('div', { class: 'item', 'data-id': hb.id },
+      h('div', { class: 'avatar' }, hb.emoji),
+      h('div', { class: 'main' }, h('b', null, hb.name), h('small', null, s ? '🔥 ' + s + '-day streak' : 'Start a streak today'),
+        h('div', { class: 'dots' }, [6, 5, 4, 3, 2, 1, 0].map((n) => h('i', { class: hb.days[dayAgo(n)] ? 'on' : '', title: dayAgo(n) })))),
+      h('button', { class: 'del', 'aria-label': 'Delete ' + hb.name, onclick: () => remove(hb) }, '🗑'),
+      h('button', { class: 'check' + (on ? ' on' : ''), 'aria-label': (on ? 'Undo ' : 'Done: ') + hb.name, onclick: () => toggle(hb.id) }, on ? '✓' : '')));
+  }
+  const all = db.get(); let bestS = 0, hits = 0, slots = 0;
+  const per = $('#perHabit'); per.innerHTML = '';
+  for (const hb of all) {
+    const b = best(hb); bestS = Math.max(bestS, b); let k = 0; for (let n = 0; n < 30; n++) if (hb.days[dayAgo(n)]) k++; hits += k; slots += 30;
+    per.appendChild(h('div', null, h('div', { class: 'row between' }, h('b', null, hb.emoji + ' ' + hb.name), h('span', { class: 'muted small' }, k + '/30 · best ' + b)), h('div', { class: 'bar' }, h('i', { style: 'width:' + Math.round(k / 30 * 100) + '%' }))));
+  }
+  if (!all.length) per.appendChild(h('div', { class: 'muted' }, 'Stats show up after you add habits.'));
+  $('#sBest').textContent = bestS; $('#sRate').textContent = (slots ? Math.round(hits / slots * 100) : 0) + '%';
+}
+function toggle(id) {
+  const today = dayAgo(0); let hit = null;
+  db.update((list) => { const hb = list.find((x) => x.id === id); if (!hb) return; if (hb.days[today]) delete hb.days[today]; else { hb.days[today] = true; hit = hb; } });
+  haptic(15);
+  if (hit) { const s = streak(db.get().find((x) => x.id === id)); sfx('success'); if (CFG.milestones.includes(s)) { celebrate('🏆'); toast('🔥 ' + s + '-day streak on ' + hit.name + '!'); } else celebrate(hit.emoji); } else sfx('tap');
+  render();
+}
+async function remove(hb) { if (await confirm('Delete "' + hb.name + '" and its history?', 'Delete')) { db.update((l) => l.filter((x) => x.id !== hb.id)); toast('Deleted'); render(); } }
+
+function renderEmojis() { const box = $('#emojis'); box.innerHTML = ''; for (const e of CFG.emojiChoices) box.appendChild(h('button', { type: 'button', class: 'chip' + (e === pick ? ' active' : ''), 'aria-label': 'Icon ' + e, onclick: () => { pick = e; renderEmojis(); } }, e)); }
+$('#addForm').addEventListener('submit', (e) => {
+  e.preventDefault(); const name = $('#hName').value.trim();
+  if (!name) { toast('Type a habit name first'); $('#hName').focus(); return; }
+  db.update((l) => { l.push({ id: uid(), name, emoji: pick, days: {} }); }); $('#hName').value = ''; sfx('pop'); toast('Added “' + name + '”'); render();
+});
+$('#theme').addEventListener('click', () => { const p = prefs.update((x) => { x.light = !x.light; }); document.body.classList.toggle('light', p.light); });
+document.title = CFG.title; $('#title').textContent = CFG.emoji + ' ' + CFG.title;
+document.documentElement.style.setProperty('--accent', CFG.accent); document.documentElement.style.setProperty('--accent-2', CFG.accent2);
+document.body.classList.toggle('light', !!prefs.get().light);
+renderEmojis(); render();
+</script>
+</body>
+</html>

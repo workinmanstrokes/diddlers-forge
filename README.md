@@ -5,6 +5,13 @@ Describe an idea. The **Architect** plans it and asks you questions, **you appro
 
 No cloud, no API keys, no `npm install`. It's one Node server with zero dependencies.
 
+### New in 3.0: same quality, a fraction of the tokens
+- **⚡ 14 starter recipes:** finished, tested games and apps (space shooter, zombie survival, endless runner, flappy, fruit catcher, brick breaker, snake, match-3, idle tycoon, a Michigan fishing game, habit tracker, budget, interval timer and notes). Tap one to build it for **0 tokens**. If your idea matches one, the AI only re-themes and adjusts it, which takes about **1k output tokens instead of 3–7k**.
+- **🎛 Tuner:** every starter keeps its colors, emoji, names, speeds and difficulty in one tuning block. Change them with sliders and color pickers, try 3 one-tap themes or 🎲 random colors, and watch a live preview. **No AI, 0 tokens.**
+- **Lean edits:** requests like “make it faster” or “blue theme” send only the tuning block (~300 tokens) instead of the whole file.
+- **Smarter cache use:** every role now shares one system prompt and the files always come first, so Ollama re-uses what it already read. The improvement step after a Critic review re-reads about 4% of its prompt instead of all of it.
+- **Kit v2 (free polish):** procedural music, animated backgrounds, upgrade-choice cards, big banners and 1.2M-style numbers, each one line for the AI.
+
 ---
 
 ## Quick start (Windows)
@@ -42,12 +49,13 @@ The studio server talks to Ollama for you, so **Ollama can stay on localhost**. 
 
 | Mode | What happens | Tokens |
 |---|---|---|
-| ⚡ **Quick** | The Coder builds right away. QA tests run (free), but nothing is auto-repaired. | Fewest |
+| ⚡ **Quick** | The Coder builds right away (from a matching starter when there is one). QA tests run (free), but nothing is auto-repaired. | Fewest |
 | 🧠 **Smart** | The 📐 Architect writes a plan → **you edit and approve it** → the 👨‍💻 Coder builds → 🧪 QA tests → the 🩺 Debugger repairs only if something failed (attempt limit) | Low |
 | 💎 **Quality** | Like Smart, but the Coder builds **step by step** with QA after every step. At the end, QA checks every planned feature against the code and the Coder adds anything missing. | More |
 
 - **🤖 Autopilot** (on by default; it's a toggle next to *Build it*): you describe the idea and it runs every step for you. It approves the plan after a short countdown using the recommended answers; touching the plan pauses it. It accepts rewrites only if the tests don't get worse, then playtests, asks the Critic, and applies the best ideas for 1 round (configurable). If a change makes the tests or the playtest score worse, it is **reverted automatically**. Promoting to staging or production is always your call.
-- **Plan card:** answer the Architect's questions with one tap, edit the features, controls, look and build steps, and see an estimate (tokens, plus time based on *your* measured model speed). Nothing gets built until you press **Approve & build**.
+- **Plan card:** answer the Architect's questions with one tap, edit the features, controls, look and build steps, pick **Start from** (a starter or “write it from scratch”), and see an estimate (tokens, plus time based on *your* measured model speed). Nothing gets built until you press **Approve & build**.
+- **Starter builds** save the finished starter as v1 straight away (playable in Preview within a second), then the Coder customizes it as v2. If the customization doesn't apply, you still keep the working starter.
 - **Agent activity:** each step shows who did what (🧭 PM, 📐 Architect, 👨‍💻 Coder, 🧪 QA, 🩺 Debugger), tokens used, and speed. It's saved in the chat and in Tests → *Error console & agent activity*.
 - **Roles take turns on one model.** Settings → Models → *Per-role models* lets you split them, but on 16 GB RAM one model avoids reload time.
 - **Never overwrites without asking:** edits are small patches. If the AI wants to rewrite a whole file, the job **pauses for your approval**, with a diff.
@@ -82,17 +90,45 @@ Live CPU and RAM, which model is loaded (CPU vs GPU share, context, unload timer
 
 ---
 
+## Starters
+
+| Starter | What you get | One-tap themes |
+|---|---|---|
+| 🚀 Space Blaster | Drag to fly, auto-fire, formation waves, power-ups, upgrade picks, bosses | Deep Space · Sky Ace · Ocean Defender |
+| 🧟 Zombie Survival | Virtual stick, auto-aim, 20 s waves, gems, 8 upgrades incl. orbit blades, brutes | Zombie Night · Monster Mash · Bug Blaster |
+| 🏃 Neon Runner | Tap / double jump, obstacles, bats, pits, coin streaks, synthwave city | Neon City · Desert Dash · Ice Run |
+| 🐤 Sky Hopper | Flap through pipes, 3 hearts, bouncy ground, bonus stars, streak points | Sunny Day · Night Flight · Rocket Hop |
+| 🧺 Fruit Frenzy | Catch fruit, dodge bombs, combos, star frenzy | Fruit Frenzy · Candy Rain · Treasure Dive |
+| 🧱 Brick Smash | Paddle, 5 cycling layouts, tough bricks, multi-ball / wide / slow / life | Neon · Sugar Smash · Retro Green |
+| 🐍 Snake Arena | Smooth snake, 3 orbs, golden orbs, wrap-around, rocks as you grow | Jungle · Neon Viper · Garden Worm |
+| 💎 Gem Match | Swipe match-3, cascades, line and rainbow gems, levels with moves and targets | Gem Vault · Fruit Crush · Candy Pop |
+| 💰 Idle Tycoon | Tap coin, 7 businesses, offline earnings, frenzy, prestige stars | Tycoon · Cookie Empire · Space Miner |
+| 🎣 Lunker Rush | Charge cast, hook on the dip, tension-meter reeling, 9 Michigan species, weights, species log, sunset timer | Morning Lake · Ice Shanty · Deep Sea |
+| ✅ Habit Streaks | Check-offs, streaks, 7-day dots, completion ring, stats | Fresh Green · Fitness · Calm (light) |
+| 💸 Budget Buddy | Quick add, money left this month, history by day, category bars | Emerald · Job Costs · Light |
+| ⏱️ Interval Timer | Work/rest/rounds, ring countdown, beeps + vibration, presets | Workout · Fight Timer · Focus |
+| 📝 Quick Notes | Capture, colors, pins, search with highlights, edit | Amber · Job Notes · Light |
+
+Every starter and every theme passes all automated checks on a phone screen. Games score 93–100 in the bot playtest and apps score 100.
+
+**Add your own starter:** drop a kit-based `.html` with a `const CFG = {…}` JSON block into `public/recipes/` and add an entry (keywords + themes) to `public/recipes/index.js`.
+
+### 🎛 Tuner (0 tokens)
+Tap **🎛 Tune** in the chat chips or the 🎛 button above the preview. You get color pickers, sliders for every number, text fields for names, emoji and help text, the starter's themes and **🎲 Surprise colors**, with a live phone preview. Nothing is saved until **💾 Save version**. Any project whose code has a `const CFG = {…}` block can use it, and new AI builds are told to write one.
+
 ## Why it uses so few tokens
 
+- **Starters:** most ideas begin from a finished, tested build. The Coder sends small patches (≈1k tokens) instead of a whole game (3–7k). Tapping a starter as-is costs 0.
+- **Lean edits + Tuner:** tuning changes touch only the CFG block, or skip the AI entirely.
 1. **Kits:** `kit/game.js` handles the game loop, fit-to-screen, touch/mouse/keys, virtual joystick, sounds, particles, shake, menus, pause, game over, HUD and best score. `kit/app.js` and `kit/ui.css` give polished mobile UI parts. The model writes only the game or app logic, which means fewer output tokens and fewer bugs from small models.
 2. **Patches, not rewrites:** edits send `SEARCH/REPLACE` blocks.
 3. **No chat history resent:** the current files are the memory.
-4. **Same system prompt every call,** so Ollama reuses its prompt cache.
+4. **One system prompt for every role, files first,** so Ollama reuses its prompt cache across Architect → Coder → Critic → Coder instead of re-reading the file each time.
 5. **Fixed context size + keep-alive,** so the model never reloads between steps.
 6. **Free local tests:** the AI is only called again when something actually broke.
 7. **"Skip thinking"** for reasoning models (on by default).
 
-On a 16 GB RAM PC with integrated graphics, expect a few to ~10 tokens/second for a 7B model. A full game is roughly 3–7k tokens. The plan card shows an estimate from your real measured speed. Use `qwen2.5-coder:3b` for quick edits if you want faster turnarounds.
+On a 16 GB RAM PC with integrated graphics, expect a few to ~10 tokens/second for a 7B model. A game written from scratch is roughly 3–7k output tokens (10–20 minutes); a starter customization is about 1k (2–4 minutes). The plan card shows an estimate from your real measured speed. Use `qwen2.5-coder:3b` for quick edits if you want faster turnarounds.
 
 ---
 
@@ -111,6 +147,7 @@ On a 16 GB RAM PC with integrated graphics, expect a few to ~10 tokens/second fo
 | M9 Backups + exports | ✅ Versions, restore, diff, PWA .zip, single HTML |
 | M10 Remote access | ✅ Phone over Wi-Fi with an optional PIN (local network only) |
 | Extras | Autopilot, Critic reviews, terminal, library bundling, hardware monitor, dev/staging/prod, Windows launcher |
+| 3.0 | Starter recipes, Tuner, lean edits, shared prompt cache, kit v2 (music, backdrops, choice cards, banners) |
 
 ---
 
@@ -119,6 +156,7 @@ On a 16 GB RAM PC with integrated graphics, expect a few to ~10 tokens/second fo
 - **Repair attempts:** how many times the Debugger may try (Smart). Quality always allows at least 2.
 - **Plan first:** turn it off to skip the plan and approval step in Smart and Quality.
 - **Autopilot:** on or off, how long before plans are approved (or "wait for me"), improvement rounds (0–3), and playtest length.
+- **⚡ Start from starters** and **🎛 Lean edits:** both on by default. Turn them off to always write from scratch or always send whole files.
 - **Ollama address:** point it at another machine, e.g. a gaming PC: `http://192.168.1.50:11434`.
 
 Command-line options: `node server.js --port 4848 --host 0.0.0.0 --pin 1234 --ollama http://127.0.0.1:11434 --data ./data --open`
@@ -129,6 +167,7 @@ server.js              zero-dependency server (API, Ollama proxy, storage, termi
 public/                the studio (PWA): index.html, app.js, engine.js, tester.js, styles.css
 public/shared/         build + test-harness code shared by browser and server
 public/kit/            game.js, app.js, ui.css — what generated apps are built on
+public/recipes/        14 starter recipes + index.js (keywords, themes, CFG helpers)
 data/                  your projects, versions (deduplicated), workspace, logs, settings (not in git)
 ```
 

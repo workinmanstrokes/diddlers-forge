@@ -18,7 +18,7 @@ const { spawn, exec } = require('child_process');
 const Build = require('./public/shared/build.js');
 const Harness = require('./public/shared/harness.js');
 
-const VERSION = '2.0.0';
+const VERSION = '3.0.0';
 const argv = process.argv.slice(2);
 const arg = (/** @type {string} */ name, /** @type {string} */ def) => { const i = argv.indexOf('--' + name); return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : def; };
 const flag = (/** @type {string} */ name) => argv.includes('--' + name);
@@ -38,7 +38,7 @@ const DEFAULT_SETTINGS = {
   ollamaUrl: arg('ollama', process.env.OLLAMA_URL || 'http://127.0.0.1:11434'),
   codeModel: '', fastModel: '', roles: { architect: '', coder: '', debugger: '', qa: '', critic: '' },
   numCtx: 16384, temperature: 0.4, maxOutput: 8192, autoFix: 1, mode: 'smart', noThink: true, keepAlive: '15m', planFirst: true,
-  autopilot: true, autoApproveSecs: 15, autoImprove: 1, playtestSecs: 20,
+  autopilot: true, autoApproveSecs: 15, autoImprove: 1, playtestSecs: 20, useStarters: true, leanEdits: true,
 };
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -164,7 +164,7 @@ function newProject(/** @type {any} */ b) {
   return {
     id: crypto.randomBytes(5).toString('hex').slice(0, 8), name: String(b.name || 'Untitled').slice(0, 60), emoji: b.emoji || (b.type === 'app' ? '✨' : '🎮'),
     color: b.color || '#7c5cff', type: b.type === 'app' ? 'app' : 'game', orientation: b.orientation || 'portrait', idea: String(b.idea || '').slice(0, 3000),
-    created: Date.now(), updated: Date.now(), versions: [], envs: { dev: 0, staging: 0, prod: 0 }, envLog: [], chat: [], usage: { in: 0, out: 0, calls: 0, ms: 0 }, hasIcon: false,
+    recipe: typeof b.recipe === 'string' ? b.recipe.slice(0, 30) : '', created: Date.now(), updated: Date.now(), versions: [], envs: { dev: 0, staging: 0, prod: 0 }, envLog: [], chat: [], usage: { in: 0, out: 0, calls: 0, ms: 0 }, hasIcon: false,
   };
 }
 
@@ -631,7 +631,7 @@ async function handle(req, res) {
           const b = await readJson(req);
           const out = await withLock(id, async () => {
             const cur = await getProject(id);
-            for (const k of ['name', 'emoji', 'color', 'type', 'orientation', 'idea', 'chat']) if (k in b) cur[k] = b[k];
+            for (const k of ['name', 'emoji', 'color', 'type', 'orientation', 'idea', 'chat', 'recipe']) if (k in b) cur[k] = b[k];
             if (Array.isArray(cur.chat) && cur.chat.length > 300) cur.chat = cur.chat.slice(-300);
             await saveProject(cur); return cur;
           });

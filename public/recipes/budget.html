@@ -1,0 +1,117 @@
+<!-- app: {"name":"Budget Buddy","emoji":"💸","color":"#10b981","type":"app","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Budget Buddy</title>
+<link rel="stylesheet" href="kit/ui.css">
+<script src="kit/app.js"></script>
+<style>
+.amount{font-size:34px;font-weight:900;text-align:center;min-height:64px}
+.cats{display:flex;gap:8px;flex-wrap:wrap}.cats .chip{min-height:42px}
+.day{margin:14px 4px 6px;font-size:13px;font-weight:800;color:var(--muted);display:flex;justify-content:space-between}
+.amt{font-weight:900;white-space:nowrap}
+.del{background:none;border:0;color:var(--muted);font-size:18px;min-width:44px;min-height:44px;cursor:pointer}
+.cbar{display:grid;grid-template-columns:110px 1fr auto;gap:10px;align-items:center;margin:8px 0}.cbar .track{height:12px;border-radius:99px;background:var(--surface-2);overflow:hidden}.cbar .track i{display:block;height:100%;border-radius:inherit}
+.chip.active{color:var(--chip-on,#fff)}
+.over .progress>i{background:linear-gradient(90deg,var(--warn),var(--bad))}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar"><div class="title" id="title"></div><span class="badge" id="monthBadge"></span></header>
+  <main class="content">
+    <section data-page="add" class="stack">
+      <div class="card accent stat"><span class="label">Left this month</span><span class="value" id="left">$0</span><span class="label" id="leftSub"></span></div>
+      <form class="card col" id="addForm">
+        <div class="field"><label for="note">What for?</label><input class="input" id="note" placeholder="e.g. Coffee" maxlength="60" autocomplete="off"></div>
+        <div class="field"><label for="amt">Amount</label><input class="input amount" id="amt" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" autocomplete="off"></div>
+        <div class="field"><label>Category</label><div class="cats" id="cats"></div></div>
+        <button class="btn primary block" type="submit">＋ Add expense</button>
+      </form>
+      <div><div class="day"><span>Recent</span><span id="todayTot"></span></div><div id="recent"></div></div>
+    </section>
+    <section data-page="history"><div id="history"></div></section>
+    <section data-page="insights" class="stack">
+      <div class="card" id="budgetCard"><div class="row between"><h3>Monthly budget</h3><b id="spentOf"></b></div><div class="progress"><i id="budgetBar"></i></div>
+        <form class="row" id="budgetForm" style="margin-top:12px"><input class="input" id="budgetIn" inputmode="decimal" aria-label="Monthly budget"><button class="btn" type="submit">Save</button></form></div>
+      <div class="card"><h3>By category</h3><div id="catBars"></div></div>
+    </section>
+  </main>
+  <nav class="tabbar"><button data-tab="add" class="active">➕<span>Add</span></button><button data-tab="history">🧾<span>History</span></button><button data-tab="insights">📊<span>Insights</span></button></nav>
+</div>
+<script>
+// TUNING — change these first: names, colors, currency, budget, categories
+const CFG = {
+  "title": "Budget Buddy",
+  "emoji": "💸",
+  "accent": "#10b981",
+  "accent2": "#22d3ee",
+  "light": false,
+  "currency": "USD",
+  "monthlyBudget": 1500,
+  "categories": [
+    { "name": "Food", "emoji": "🍔", "color": "#f97316" },
+    { "name": "Gas", "emoji": "⛽", "color": "#eab308" },
+    { "name": "Home", "emoji": "🏠", "color": "#3b82f6" },
+    { "name": "Fun", "emoji": "🎉", "color": "#a855f7" },
+    { "name": "Shopping", "emoji": "🛍️", "color": "#ec4899" },
+    { "name": "Other", "emoji": "📦", "color": "#64748b" }
+  ]
+};
+
+// APP
+const { $, h, store, toast, confirm, sfx, haptic, fmt, uid } = Kit.app;
+const db = store('entries', []), budget = store('budget', CFG.monthlyBudget), money = (n) => fmt.money(n, CFG.currency);
+let cat = CFG.categories[0].name;
+const catOf = (n) => CFG.categories.find((c) => c.name === n) || CFG.categories[CFG.categories.length - 1];
+const monthKey = (d) => { const x = new Date(d); return x.getFullYear() + '-' + x.getMonth(); };
+const thisMonth = () => db.get().filter((e) => monthKey(e.ts) === monthKey(Date.now()));
+
+function renderCats() { const box = $('#cats'); box.innerHTML = ''; for (const c of CFG.categories) box.appendChild(h('button', { type: 'button', class: 'chip' + (c.name === cat ? ' active' : ''), onclick: () => { cat = c.name; haptic(8); renderCats(); } }, c.emoji + ' ' + c.name)); }
+function render() {
+  const mine = thisMonth(), spent = mine.reduce((a, e) => a + e.amt, 0), B = budget.get(), left = B - spent;
+  $('#monthBadge').textContent = new Date().toLocaleDateString(undefined, { month: 'long' });
+  $('#left').textContent = money(left); $('#leftSub').textContent = money(spent) + ' spent of ' + money(B);
+  $('#spentOf').textContent = Math.round(spent / Math.max(1, B) * 100) + '%';
+  $('#budgetBar').style.width = Math.min(100, spent / Math.max(1, B) * 100) + '%'; $('#budgetCard').classList.toggle('over', spent > B);
+  if (document.activeElement !== $('#budgetIn')) $('#budgetIn').value = B;
+  const row = (e) => { const c = catOf(e.cat); return h('div', { class: 'item', 'data-id': e.id },
+    h('div', { class: 'avatar', style: 'background:' + c.color + '33' }, c.emoji), h('div', { class: 'main' }, h('b', null, e.note || c.name), h('small', null, c.name + ' · ' + fmt.time(e.ts))),
+    h('span', { class: 'amt' }, money(e.amt)), h('button', { class: 'del', 'aria-label': 'Delete expense', onclick: () => remove(e) }, '🗑')); };
+  const recent = db.get().slice().sort((a, b) => b.ts - a.ts).slice(0, 3), rb = $('#recent'); rb.innerHTML = '';
+  if (recent.length) rb.appendChild(h('div', { class: 'list' }, recent.map(row))); else rb.appendChild(h('div', { class: 'muted small', style: 'padding:0 4px' }, 'Nothing yet today.'));
+  $('#todayTot').textContent = 'Today ' + money(db.get().filter((e) => new Date(e.ts).toDateString() === new Date().toDateString()).reduce((a, e) => a + e.amt, 0));
+  const hist = $('#history'); hist.innerHTML = '';
+  const all = db.get().slice().sort((a, b) => b.ts - a.ts);
+  if (!all.length) hist.appendChild(h('div', { class: 'empty' }, h('div', { class: 'big' }, '🧾'), 'No expenses yet. Add one on the Add tab.'));
+  const groups = {}; for (const e of all) { const k = new Date(e.ts).toDateString(); (groups[k] = groups[k] || []).push(e); }
+  for (const k of Object.keys(groups)) {
+    const day = groups[k], tot = day.reduce((a, e) => a + e.amt, 0);
+    hist.appendChild(h('div', { class: 'day' }, h('span', null, fmt.date(day[0].ts)), h('span', null, money(tot))));
+    hist.appendChild(h('div', { class: 'list' }, day.map(row)));
+  }
+  const bars = $('#catBars'); bars.innerHTML = ''; const by = {};
+  for (const e of mine) by[e.cat] = (by[e.cat] || 0) + e.amt;
+  const max = Math.max(1, ...Object.values(by));
+  if (!mine.length) bars.appendChild(h('div', { class: 'muted' }, 'Your spending by category shows up here.'));
+  for (const c of CFG.categories) if (by[c.name]) bars.appendChild(h('div', { class: 'cbar' }, h('span', null, c.emoji + ' ' + c.name), h('div', { class: 'track' }, h('i', { style: `width:${by[c.name] / max * 100}%;background:${c.color}` })), h('b', null, money(by[c.name]))));
+}
+async function remove(e) { if (await confirm('Delete this ' + money(e.amt) + ' expense?', 'Delete')) { db.update((l) => l.filter((x) => x.id !== e.id)); toast('Deleted'); render(); } }
+$('#addForm').addEventListener('submit', (ev) => {
+  ev.preventDefault(); const amt = parseFloat(String($('#amt').value).replace(/[^0-9.]/g, ''));
+  if (!(amt > 0)) { toast('Enter an amount'); sfx('error'); $('#amt').focus(); return; }
+  db.update((l) => { l.push({ id: uid(), amt: Math.round(amt * 100) / 100, cat, note: $('#note').value.trim(), ts: Date.now() }); });
+  $('#amt').value = ''; $('#note').value = ''; sfx('success'); haptic(15); toast('Added ' + money(amt) + ' · ' + catOf(cat).emoji + ' ' + cat); render();
+});
+$('#budgetForm').addEventListener('submit', (ev) => { ev.preventDefault(); const v = parseFloat($('#budgetIn').value); if (v > 0) { budget.set(v); toast('Budget saved'); sfx('success'); $('#budgetIn').blur(); render(); } });
+document.title = CFG.title; $('#title').textContent = CFG.emoji + ' ' + CFG.title;
+document.documentElement.style.setProperty('--accent', CFG.accent); document.documentElement.style.setProperty('--accent-2', CFG.accent2);
+const lum = (hx) => { const n = parseInt(hx.slice(1, 7), 16); return [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }).reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0); };
+document.documentElement.style.setProperty('--chip-on', lum(CFG.accent) > 0.3 ? '#0b1020' : '#ffffff');
+document.body.classList.toggle('light', !!CFG.light);
+renderCats(); render();
+</script>
+</body>
+</html>

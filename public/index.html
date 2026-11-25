@@ -158,6 +158,7 @@ Try: git init · npm init -y · node -v · npx prettier --write index.html
         <button class="icon-btn sm" data-act="rotate" title="Rotate">⟳</button>
         <span class="pv-label" id="pvLabel"></span>
         <div class="grow"></div>
+        <button class="icon-btn sm" data-act="tune" title="Tune colors, speeds and difficulty: no AI, 0 tokens">🎛</button>
         <button class="icon-btn sm" data-act="reload" title="Restart">↻</button>
         <button class="icon-btn sm" data-act="test" title="Run tests">🧪</button>
         <a class="icon-btn sm" id="openTab" target="_blank" rel="noopener" title="Open full screen in a new tab">↗</a>
@@ -183,6 +184,7 @@ Try: git init · npm init -y · node -v · npx prettier --write index.html
 <div id="toasts"></div>
 <script src="shared/build.js"></script>
 <script src="shared/harness.js"></script>
+<script src="recipes/index.js"></script>
 <script src="engine.js"></script>
 <script src="tester.js"></script>
 <script src="app.js"></script>

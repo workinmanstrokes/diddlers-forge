@@ -1,0 +1,93 @@
+<!-- app: {"name":"Quick Notes","emoji":"📝","color":"#f59e0b","type":"app","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Quick Notes</title>
+<link rel="stylesheet" href="kit/ui.css">
+<script src="kit/app.js"></script>
+<style>
+.note{position:relative;padding:14px 14px 10px 18px;border-radius:16px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden}
+.note:before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--c)}
+.note p{margin:0 0 8px;white-space:pre-wrap;word-wrap:break-word;line-height:1.45}
+.note .meta{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:12px}
+.note .meta button{background:none;border:0;color:var(--muted);font-size:17px;min-width:44px;min-height:44px;cursor:pointer}
+.note.pinned{border-color:color-mix(in srgb,var(--accent) 50%,transparent)}
+.colors{display:flex;gap:8px}.colors button{width:36px;height:36px;border-radius:50%;border:3px solid transparent;cursor:pointer}.colors button.on{border-color:var(--text)}
+.notes{display:grid;gap:10px}
+mark{background:color-mix(in srgb,var(--accent) 45%,transparent);color:inherit;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar"><div class="title" id="title"></div><span class="badge" id="count"></span></header>
+  <main class="content">
+    <section data-page="notes" class="stack">
+      <form class="card col" id="addForm">
+        <textarea class="input" id="text" placeholder="Write a note…" maxlength="2000" aria-label="New note"></textarea>
+        <div class="row between"><div class="colors" id="colors"></div><button class="btn primary" type="submit">Save</button></div>
+      </form>
+      <input class="input" id="search" type="search" placeholder="🔍 Search notes" aria-label="Search notes">
+      <div class="notes" id="notes"></div>
+    </section>
+    <section data-page="pinned" class="stack"><div class="notes" id="pinnedList"></div></section>
+  </main>
+  <nav class="tabbar"><button data-tab="notes" class="active">📝<span>All notes</span></button><button data-tab="pinned">📌<span>Pinned</span></button></nav>
+</div>
+<script>
+// TUNING — change these first: names, colors, labels
+const CFG = {
+  "title": "Quick Notes",
+  "emoji": "📝",
+  "accent": "#f59e0b",
+  "accent2": "#ef4444",
+  "light": false,
+  "noteColors": ["#f59e0b", "#22c55e", "#3b82f6", "#ec4899", "#a855f7"],
+  "welcomeNote": "Welcome! Type above and tap Save. Pin 📌 the ones that matter."
+};
+
+// APP
+const { $, h, store, toast, confirm, sheet, sfx, haptic, fmt, uid } = Kit.app;
+const db = store('notes', CFG.welcomeNote ? [{ id: uid(), text: CFG.welcomeNote, color: CFG.noteColors[0], pinned: false, ts: Date.now() }] : []);
+let color = CFG.noteColors[0];
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+function hl(text, q) { const e = esc(text); if (!q) return e; return e.replace(new RegExp('(' + esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'), '<mark>$1</mark>'); }
+function card(n, q) {
+  return h('div', { class: 'note' + (n.pinned ? ' pinned' : ''), style: '--c:' + n.color, 'data-id': n.id },
+    h('p', { html: hl(n.text, q) }),
+    h('div', { class: 'meta' }, h('span', { class: 'grow' }, fmt.ago(n.ts)),
+      h('button', { 'aria-label': n.pinned ? 'Unpin note' : 'Pin note', onclick: () => { db.update((l) => { const x = l.find((y) => y.id === n.id); x.pinned = !x.pinned; }); haptic(8); toast(n.pinned ? 'Unpinned' : 'Pinned 📌'); render(); } }, n.pinned ? '📌' : '📍'),
+      h('button', { 'aria-label': 'Edit note', onclick: () => edit(n) }, '✏️'),
+      h('button', { 'aria-label': 'Delete note', onclick: async () => { if (await confirm('Delete this note?', 'Delete')) { db.update((l) => l.filter((x) => x.id !== n.id)); toast('Deleted'); render(); } } }, '🗑')));
+}
+function render() {
+  const q = $('#search').value.trim().toLowerCase(), all = db.get().slice().sort((a, b) => (b.pinned - a.pinned) || b.ts - a.ts);
+  const shown = q ? all.filter((n) => n.text.toLowerCase().includes(q)) : all;
+  $('#count').textContent = all.length + ' note' + (all.length === 1 ? '' : 's');
+  const box = $('#notes'); box.innerHTML = '';
+  if (!shown.length) box.appendChild(h('div', { class: 'empty' }, h('div', { class: 'big' }, q ? '🔍' : '🗒️'), q ? 'Nothing matches “' + q + '”.' : 'No notes yet.'));
+  shown.forEach((n) => box.appendChild(card(n, q)));
+  const pin = $('#pinnedList'); pin.innerHTML = ''; const ps = all.filter((n) => n.pinned);
+  if (!ps.length) pin.appendChild(h('div', { class: 'empty' }, h('div', { class: 'big' }, '📌'), 'Pin a note to keep it here.'));
+  ps.forEach((n) => pin.appendChild(card(n, '')));
+}
+function edit(n) {
+  const ta = h('textarea', { class: 'input', rows: 6, 'aria-label': 'Edit note' }); ta.value = n.text;
+  const s = sheet(h('div', { class: 'col' }, ta, h('div', { class: 'row' }, h('button', { class: 'btn grow', onclick: () => s.close() }, 'Cancel'),
+    h('button', { class: 'btn primary grow', onclick: () => { const t = ta.value.trim(); if (!t) return; db.update((l) => { const x = l.find((y) => y.id === n.id); x.text = t; x.ts = Date.now(); }); s.close(); toast('Saved'); render(); } }, 'Save'))), { title: 'Edit note' });
+  setTimeout(() => ta.focus(), 50);
+}
+function renderColors() { const box = $('#colors'); box.innerHTML = ''; CFG.noteColors.forEach((c, i) => box.appendChild(h('button', { type: 'button', class: c === color ? 'on' : '', style: 'background:' + c, 'aria-label': 'Color ' + (i + 1), onclick: () => { color = c; renderColors(); } }))); }
+$('#addForm').addEventListener('submit', (e) => {
+  e.preventDefault(); const t = $('#text').value.trim(); if (!t) { toast('Write something first'); $('#text').focus(); return; }
+  db.update((l) => { l.push({ id: uid(), text: t, color, pinned: false, ts: Date.now() }); }); $('#text').value = ''; sfx('pop'); haptic(10); toast('Note saved'); render();
+});
+$('#search').addEventListener('input', render);
+document.title = CFG.title; $('#title').textContent = CFG.emoji + ' ' + CFG.title;
+document.documentElement.style.setProperty('--accent', CFG.accent); document.documentElement.style.setProperty('--accent-2', CFG.accent2);
+document.body.classList.toggle('light', !!CFG.light);
+renderColors(); render();
+</script>
+</body>
+</html>

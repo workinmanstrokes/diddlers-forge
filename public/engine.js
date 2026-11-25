@@ -1,12 +1,14 @@
 // @ts-check
 /* Diddler’s Forge — generation engine: prompts, Ollama streaming, patch edits.
  * Token-saving design:
- *  1. Kits: the model writes only game/app logic (no loop/resize/input/menus/CSS boilerplate).
- *  2. One stable system prompt for every call → Ollama reuses its prompt cache (KV prefix).
- *  3. Edits are SEARCH/REPLACE patches, not full rewrites.
- *  4. No chat history is resent — the current file IS the memory.
- *  5. Tests run locally (free); the model is only called again if something actually broke.
- *  6. Fixed num_ctx + keep_alive → the model stays loaded, no reloads between calls. */
+ *  1. Starter recipes: builds begin from a finished, tested game/app and the Coder only patches what the idea changes.
+ *  2. Kits: the model writes only game/app logic (no loop/resize/input/menus/CSS boilerplate).
+ *  3. ONE system prompt for every role, and the files always come first in the user message →
+ *     Ollama reuses its KV cache across roles (Architect → Coder → Critic → Coder) instead of re-reading.
+ *  4. Lean edits: tuning requests send only the CFG block (~300 tokens) instead of the whole file.
+ *  5. Edits are SEARCH/REPLACE patches, not full rewrites. No chat history is resent.
+ *  6. Tests run locally (free); the model is only called again if something actually broke.
+ *  7. Fixed num_ctx + keep_alive → the model stays loaded, no reloads between calls. */
 (function (root) {
   'use strict';
 
@@ -18,7 +20,9 @@ Kit.game({title,emoji,help:'one-line how to play',color:'#accent',bg:'#backgroun
 • Flow: g.score, g.addScore(n,x,y) (+popup), g.lives, g.loseLife(), g.over(), g.win(), g.level, g.t (seconds played), g.ramp(from,to,seconds) for difficulty, g.after(sec,fn), g.every(sec,fn) (call in init).
 • Juice: g.sfx('jump|coin|shoot|hit|explode|power|pop|click|tick|lose|win|combo'), g.particles(x,y,{color,n,speed,size,life,gravity}), g.shake(px), g.flash(color,alpha), g.floatText(x,y,text,color), g.vibrate(ms).
 • Draw: g.clear(color), g.rect(x,y,w,h,color,radius), g.circle(x,y,r,color), g.ring(x,y,r,color,w), g.line(x1,y1,x2,y2,color,w), g.text(s,x,y,{size,color,align,weight,glow}), g.emoji('🚀',x,y,size,rot), g.glow(color,blur)/g.noGlow(), g.grad(x0,y0,x1,y1,[colors]); ctx is a normal 2D context.
-• Math: g.rand(a,b), g.randi(a,b), g.pick(arr), g.chance(p), g.clamp(v,a,b), g.lerp, g.dist(a,b), g.angle(a,b), g.hitCircle(a,b){x,y,r}, g.hitRect(a,b){x,y,w,h}, g.hitCircleRect(c,r), g.ease.out(t). g.save(k,v)/g.load(k,def) for progress.`;
+• Math: g.rand(a,b), g.randi(a,b), g.pick(arr), g.chance(p), g.clamp(v,a,b), g.lerp, g.dist(a,b), g.angle(a,b), g.hitCircle(a,b){x,y,r}, g.hitRect(a,b){x,y,w,h}, g.hitCircleRect(c,r), g.ease.out(t). g.save(k,v)/g.load(k,def) for progress.
+• Free polish: config music:'arcade|action|chill|happy|spooky' (procedural loop). Call g.backdrop('stars|snow|bubbles|bokeh|grid|clouds|waves',{colors:[top,bottom],tint,speed,alpha}) first in draw for an animated background.
+• g.banner('WAVE 2','subtitle') big announcement. g.choose([{icon,title,desc}],(i,opt)=>{},{title}) pauses for an upgrade pick. formatScore:true shows 1.2M style numbers; g.fmt(n).`;
 
   const APP_KIT = `APP KIT — add <link rel="stylesheet" href="kit/ui.css"> and <script src="kit/app.js"></script> in <head>, then:
 • Layout: <body><div class="app"><header class="topbar"><div class="title">…</div></header><main class="content">…</main><nav class="tabbar">…</nav></div>
@@ -35,6 +39,7 @@ Every file you write:
 - Looks great: cohesive palette, depth (gradients, glow, shadows), smooth animation, satisfying feedback on every action.
 - Games: clear goal, fair collisions, ramping difficulty, juice (particles, shake, sfx, score popups), a safe first few seconds.
 - Apps: genuinely useful, data persisted with store(), helpful empty states, confirm before deleting.
+- Tunable values (title, help, colors, emoji, speeds, sizes, counts, difficulty) live in ONE JSON object at the top of the main script: const CFG = {"title": "…", "accent": "#hex", …}; (double-quoted keys, no comments inside it). The code reads CFG.x.
 - Tight code: no comments except short section labels, no console.log, no unused code.
 
 ${GAME_KIT}
@@ -100,6 +105,50 @@ Only if more than half of index.html must change, reply instead with the full ne
     ];
   }
 
+  /** Coder: turn a starter recipe into the idea with small patches. @param {Record<string,string>} files @param {string} idea @param {string} brief @param {{name:string,type:string}} recipe */
+  function customizeMessages(files, idea, brief, recipe) {
+    return [
+      { role: 'system', content: SYSTEM },
+      { role: 'user', content: `${filesBlock(files)}
+ROLE: Coder. The file above is the "${recipe.name}" starter: a finished, tested ${recipe.type}. Turn it into this ${recipe.type}: "${idea}"
+${brief ? 'Design brief:\n' + brief + '\n' : ''}
+Customize with the fewest changes:
+1. Edit the CFG block first: title, emoji, help, colors, characters/emoji lists, speeds, counts, difficulty. Match the idea's theme and setting.
+2. Change code only where the idea needs a mechanic the starter lacks or that works differently. Keep the kit calls, the init/update/draw structure and everything that already works.
+3. Update the first-line <!-- app: --> name/emoji/color and the <title> to match.
+
+${PATCH_RULES}` },
+    ];
+  }
+
+  // ---------- Lean edits: change only the CFG tuning block ----------
+  const TUNE_WORDS = /\b(colou?rs?|theme|palette|look|dark(?:er)?|light(?:er)?|bright(?:er)?|neon|pastel|background|faster|slower|speed|quick(?:er)?|harder|easier|difficult(?:y)?|hard|easy|bigger|smaller|larger|size|emoji|icons?|skin|rename|name|title|lives|health|hearts?|gravity|higher|music|help text|fewer|longer|shorter|budget|currency|categor(?:y|ies)|tempo|calmer|spookier|cuter|red|orange|yellow|green|blue|purple|pink|black|white|gold|golden|silver|gr[ae]y|teal|cyan|brown)\b/i;
+  const TUNE_CHANGE = /\b(make|turn|change|replace|swap|switch|set|use)\b[\s\S]{0,60}\b(to|into|with|be|as|instead)\b/i;
+  const CODE_WORDS = /\b(add|adding|implement|create|build|feature|new (?:feature|mode|level|enem(?:y|ies)|weapon|screen|page|tab|button|power)|mode|level select|leaderboard|multiplayer|online|shop|store|menu|screen|button|tab|page|power-?ups?|weapons?|abilit(?:y|ies)|bug|fix|broken|crash|error|doesn'?t|does not|not working|won'?t|stuck|freeze|boss fight|animations?|sounds?|juice|polish|effects?|particles?|physics|controls?|ai|logic|save|load)\b/i;
+  /** Does this request only change tuning values? @param {string} text */
+  function isTuneRequest(text) { const t = String(text || ''); return (TUNE_WORDS.test(t) || TUNE_CHANGE.test(t)) && !CODE_WORDS.test(t); }
+  /** @param {Record<string,any>} cfg @param {string} request @param {string} type */
+  function tuneMessages(cfg, request, type) {
+    return [
+      { role: 'system', content: SYSTEM },
+      { role: 'user', content: `Tuning block (CFG) of the current ${type}:\n\`\`\`json\n${JSON.stringify(cfg, null, 1)}\n\`\`\`\nChange request: ${request}\n\nROLE: Coder making a lean edit. Reply with the complete updated CFG as JSON only. Keep every key and the same value types; change only the values that serve the request. Colors stay "#rrggbb". If the request needs new game code rather than new values, reply {"needsCode": true}.` },
+    ];
+  }
+  /** Validate a tuned CFG against the old one: same keys, same types. @param {Record<string,any>} old @param {any} res */
+  function mergeCfg(old, res) {
+    if (!res || typeof res !== 'object' || Array.isArray(res) || res.needsCode) return null;
+    const out = {}; const changed = [];
+    for (const k of Object.keys(old)) {
+      const a = old[k]; let v = k in res ? res[k] : a;
+      const same = Array.isArray(a) ? Array.isArray(v) : typeof v === typeof a && v !== null;
+      if (!same) v = a;
+      if (typeof a === 'string' && /^#[0-9a-f]{3,8}$/i.test(a) && !(typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v))) v = a;
+      if (typeof v === 'number' && !isFinite(v)) v = a;
+      /** @type {any} */ (out)[k] = v; if (JSON.stringify(v) !== JSON.stringify(a)) changed.push(k);
+    }
+    return { cfg: out, changed };
+  }
+
   // ---------- Architect: plan as JSON ----------
   const PLAN_SCHEMA = {
     type: 'object',
@@ -111,12 +160,20 @@ Only if more than half of index.html must change, reply instead with the full ne
     },
     required: ['name', 'emoji', 'kind', 'pitch', 'questions', 'features', 'controls', 'look', 'tasks', 'complexity'],
   };
-  /** @param {'game'|'app'} type @param {string} idea */
-  function architectMessages(type, idea) {
+  /** Plan schema; when starters are offered the "starter" field is limited to their ids. @param {string[]} [ids] */
+  function planSchema(ids) {
+    if (!ids || !ids.length) return PLAN_SCHEMA;
+    return { ...PLAN_SCHEMA, properties: { ...PLAN_SCHEMA.properties, starter: { type: 'string', enum: [...ids, 'none'] } }, required: ['starter', ...PLAN_SCHEMA.required] };
+  }
+  /** @param {'game'|'app'} type @param {string} idea @param {{id:string,name:string,prompt:string}[]} [starters] */
+  function architectMessages(type, idea, starters) {
+    const st = starters && starters.length ? `\nStarters (finished, tested ${type}s that get re-themed and adjusted for a fraction of the work):\n${starters.map((r) => `- ${r.id}: ${r.prompt}`).join('\n')}\n` : '';
     return [
-      { role: 'system', content: 'You are the Architect for a mobile ' + type + ' studio. Plans become single-file HTML5 ' + type + 's (canvas + kit, touch-first, offline). Reply with JSON only.' },
-      { role: 'user', content: `Idea: "${idea}"
-Make a build plan as JSON:
+      { role: 'system', content: SYSTEM },
+      { role: 'user', content: `ROLE: Architect. Plan a single-file mobile ${type} (kit, touch-first, offline). Reply with JSON only.
+Idea: "${idea}"
+${st}
+Make a build plan as JSON:${st ? '\n- starter: id of the starter whose core gameplay/purpose matches the idea, or "none" if none fits the core loop' : ''}
 - name (2-3 words), emoji (one), kind ("${type}" unless clearly the other), pitch (one sentence)
 - questions: 0-3 short questions ONLY where the answer changes the build; 2-4 short options each, best option first
 - features: 4-8 concrete must-haves (testable)
@@ -135,6 +192,7 @@ Make a build plan as JSON:
       questions: (Array.isArray(p.questions) ? p.questions : []).filter((q) => q && q.q).slice(0, 3).map((q) => ({ q: String(q.q).slice(0, 160), options: arr(q.options).slice(0, 4), answer: '' })),
       features: arr(p.features).slice(0, 10), controls: String(p.controls || ''), look: String(p.look || ''),
       tasks: arr(p.tasks).slice(0, 5), complexity: ['small', 'medium', 'large'].includes(p.complexity) ? p.complexity : 'medium',
+      starter: typeof p.starter === 'string' && p.starter !== 'none' ? p.starter.trim() : '',
     };
   }
   /** @param {any} plan */
@@ -143,15 +201,15 @@ Make a build plan as JSON:
     return [`Name: ${plan.name} ${plan.emoji}`, plan.pitch && `Pitch: ${plan.pitch}`, plan.controls && `Controls: ${plan.controls}`, plan.look && `Look: ${plan.look}`,
       plan.features.length && 'Features:\n' + plan.features.map((/** @type {string} */ f) => '- ' + f).join('\n'), qa.length && 'Decisions:\n' + qa.join('\n')].filter(Boolean).join('\n');
   }
-  const EST_OUT = { small: 3200, medium: 5000, large: 7000 };
+  const EST_OUT = { small: 3200, medium: 5000, large: 7000, starter: 1100, tune: 350 };
 
   // ---------- QA: check the plan's features against the code ----------
   const QA_SCHEMA = { type: 'object', properties: { results: { type: 'array', items: { type: 'object', properties: { feature: { type: 'string' }, ok: { type: 'boolean' }, note: { type: 'string' } }, required: ['feature', 'ok'] } } }, required: ['results'] };
   /** @param {Record<string,string>} files @param {string[]} features */
   function qaMessages(files, features) {
     return [
-      { role: 'system', content: 'You are a strict QA tester. Read code and decide if each feature is really implemented and wired to the UI/controls. Reply with JSON only.' },
-      { role: 'user', content: `${filesBlock(files)}\nFeatures to verify:\n${features.map((f, i) => i + 1 + '. ' + f).join('\n')}\n\nReturn {"results":[{"feature":"…","ok":true|false,"note":"why, if missing"}]} with one entry per feature.` },
+      { role: 'system', content: SYSTEM },
+      { role: 'user', content: `${filesBlock(files)}\nROLE: strict QA tester. Read the code and decide if each feature is really implemented and wired to the UI/controls. Reply with JSON only.\nFeatures to verify:\n${features.map((f, i) => i + 1 + '. ' + f).join('\n')}\n\nReturn {"results":[{"feature":"…","ok":true|false,"note":"why, if missing"}]} with one entry per feature.` },
     ];
   }
   /** Lenient JSON parse for small models. @param {string} t */
@@ -165,8 +223,8 @@ Make a build plan as JSON:
   /** @param {'game'|'app'} type @param {string} idea */
   function planMessages(type, idea) {
     return [
-      { role: 'system', content: 'You are a top mobile ' + type + ' designer. Be concrete, specific and brief.' },
-      { role: 'user', content: `Design brief (max 110 words) for a single-file mobile ${type}: "${idea}".\nSections, one or two lines each: Core loop · Controls · Progression · Look & palette (hex colors) · Juice & feedback${type === 'app' ? ' · Screens' : ''}.\nMake it fun, polished and buildable in one HTML file with canvas/CSS only.` },
+      { role: 'system', content: SYSTEM },
+      { role: 'user', content: `ROLE: top mobile ${type} designer. Be concrete, specific and brief.\nDesign brief (max 110 words) for a single-file mobile ${type}: "${idea}".\nSections, one or two lines each: Core loop · Controls · Progression · Look & palette (hex colors) · Juice & feedback${type === 'app' ? ' · Screens' : ''}.\nMake it fun, polished and buildable in one HTML file with canvas/CSS only.` },
     ];
   }
 
@@ -287,8 +345,10 @@ Make a build plan as JSON:
   function criticMessages(files, type, plan, report) {
     const game = type !== 'app';
     return [
-      { role: 'system', content: `You are a senior mobile ${game ? 'game designer' : 'product and UX designer'} reviewing a build. Be honest, specific and constructive: say what is good, then what would make it clearly ${game ? 'more fun, fair and satisfying' : 'more useful, clear and delightful'}. Base criticism on the measured playtest and the actual code, not guesses. Reply with JSON only.` },
-      { role: 'user', content: `${filesBlock(files)}${plan && plan.features && plan.features.length ? '\nPlanned features:\n' + plan.features.map((f) => '- ' + f).join('\n') + '\n' : ''}
+      { role: 'system', content: SYSTEM },
+      { role: 'user', content: `${filesBlock(files)}
+ROLE: senior mobile ${game ? 'game designer' : 'product and UX designer'} reviewing this build. Be honest, specific and constructive: say what is good, then what would make it clearly ${game ? 'more fun, fair and satisfying' : 'more useful, clear and delightful'}. Base criticism on the measured playtest and the actual code, not guesses. Reply with JSON only.
+${plan && plan.features && plan.features.length ? '\nPlanned features:\n' + plan.features.map((f) => '- ' + f).join('\n') + '\n' : ''}
 Automated ${game ? 'playtest (a bot played it on a phone screen)' : 'usability test (a bot used it on a phone screen)'}:
 ${report}
 
@@ -392,7 +452,8 @@ Give 4-6 suggestions, most valuable first; measured problems come first. ${game 
     return { code, fast: (smallest || { name: code }).name };
   }
 
-  const api = { SYSTEM, buildMessages, editMessages, fixMessages, retryPatchMessages, planMessages, architectMessages, normalizePlan, planText, PLAN_SCHEMA, EST_OUT,
+  const api = { SYSTEM, buildMessages, editMessages, fixMessages, retryPatchMessages, planMessages, architectMessages, planSchema, normalizePlan, planText, PLAN_SCHEMA, EST_OUT,
+    customizeMessages, isTuneRequest, tuneMessages, mergeCfg,
     qaMessages, QA_SCHEMA, criticMessages, CRITIC_SCHEMA, normalizeReview, pickImprovements, improveRequest, parseJson, extractHtml, extractFiles, parseBlocks, applyBlocks, applyToFiles, fuzzyFind, contextFiles, filesBlock, chat, estTokens, pickModels, stripThink };
   // @ts-ignore
   root.Engine = api;
