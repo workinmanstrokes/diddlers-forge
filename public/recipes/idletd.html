@@ -1,0 +1,299 @@
+<!-- app: {"name":"Hold the Tower","emoji":"🛡️","color":"#f59e0b","type":"game","orientation":"portrait"} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Hold the Tower</title>
+<script src="kit/game.js"></script>
+<style>
+.panel{position:fixed;left:0;right:0;bottom:0;z-index:6;display:none;flex-direction:column;gap:8px;background:var(--panel);border-top:1px solid rgba(255,255,255,.16);border-radius:22px 22px 0 0;box-shadow:0 -12px 30px rgba(0,0,0,.45);padding:10px 10px calc(10px + env(safe-area-inset-bottom));font-family:ui-rounded,system-ui,sans-serif;color:#fff;box-sizing:border-box;user-select:none;-webkit-user-select:none}
+.bar{display:flex;align-items:center;gap:10px;padding:0 4px;min-height:44px}
+.bar .gold{font-size:22px;font-weight:900;color:#fde68a;flex:1;white-space:nowrap}
+.bar .info{font-size:12px;font-weight:800;opacity:.85;text-align:right;line-height:1.25}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.tile{position:relative;min-height:66px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(255,255,255,.08);color:#fff;font:800 11px ui-rounded,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:5px 2px;cursor:pointer;touch-action:manipulation;transition:transform .08s,background .2s}
+.tile i{font-style:normal;font-size:21px;line-height:1.1}
+.tile b{font-size:13px;color:#fde68a}
+.tile em{position:absolute;right:-3px;top:-5px;min-width:20px;height:20px;padding:0 4px;box-sizing:border-box;border-radius:10px;display:grid;place-items:center;font-style:normal;font-size:11px;font-weight:900;color:#1c1300;background:var(--accent);box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.tile em:empty{display:none}
+.tile.ok{background:color-mix(in srgb,var(--accent) 26%,rgba(255,255,255,.06));border-color:color-mix(in srgb,var(--accent) 70%,transparent)}
+.tile.no{filter:saturate(.3) brightness(.72)}
+.tile:active{transform:scale(.95)}
+.tile.max b{color:#86efac}
+#nova{min-width:96px;min-height:44px;border:0;border-radius:14px;font:900 14px ui-rounded,system-ui,sans-serif;color:#1c1300;background:linear-gradient(180deg,#fde68a,var(--accent));box-shadow:0 3px 0 rgba(0,0,0,.35);cursor:pointer}
+#nova:disabled{filter:grayscale(1) brightness(.6)}
+#forge{z-index:11;max-height:52vh}
+#forge .grid{grid-template-columns:repeat(3,1fr);overflow-y:auto}
+#forge .tile{min-height:78px}
+#forge h4{margin:0;font-size:13px;letter-spacing:.06em;opacity:.85;font-weight:900}
+#forge .gold{color:#fde68a}
+body.forge .kit-ov{place-items:start center;padding-top:calc(58px + env(safe-area-inset-top))}
+body.forge .kit-card{padding:14px 20px 16px}
+body.forge .kit-emoji{font-size:42px}
+body.forge .kit-title{font-size:26px;margin:6px 0 4px}
+body.forge .kit-sub{margin:0 0 10px;font-size:14px}
+</style>
+</head>
+<body>
+<div class="panel" id="shop"><div class="bar"><span class="gold" id="gold"></span><span class="info" id="info"></span><button id="nova" type="button">💥 NOVA</button></div><div class="grid" id="ups"></div></div>
+<div class="panel" id="forge"><div class="bar"><span class="gold" id="crowns"></span><h4>WORKSHOP · KEEPS FOREVER</h4></div><div class="grid" id="meta"></div></div>
+<script>
+// TUNING — change these first: names, colors, emoji, difficulty, upgrade prices
+const CFG = {
+  "title": "Hold the Tower",
+  "emoji": "🛡️",
+  "help": "Your tower shoots by itself. Spend gold on upgrades to survive the horde. When it falls, spend crowns on permanent upgrades and go further!",
+  "accent": "#f59e0b",
+  "ground": "#3f6212",
+  "groundEdge": "#1a2e05",
+  "panelColor": "#120d05ee",
+  "boltColor": "#fde047",
+  "music": "action",
+  "tower": "🏯",
+  "enemies": [
+    { "name": "Goblin", "icon": "👺", "hp": 6, "speed": 26, "dps": 4, "gold": 2, "size": 22, "from": 1 },
+    { "name": "Boar", "icon": "🐗", "hp": 4, "speed": 50, "dps": 3, "gold": 2, "size": 20, "from": 3 },
+    { "name": "Ogre", "icon": "👹", "hp": 32, "speed": 16, "dps": 12, "gold": 8, "size": 34, "from": 6 }
+  ],
+  "boss": { "name": "Dragon", "icon": "🐉", "hp": 420, "speed": 12, "dps": 45, "gold": 120, "size": 64 },
+  "bossEvery": 10,
+  "hordeSize": 2,
+  "waveSeconds": 15,
+  "spawnRate": 0.6,
+  "spawnGrowth": 0.3,
+  "hpGrowth": 1.19,
+  "towerHp": 100,
+  "baseDamage": 6,
+  "fireRate": 2,
+  "range": 115,
+  "startGold": 30,
+  "novaCooldown": 25,
+  "crownsPerWave": 1.6
+};
+
+// GAME
+const UPS = [
+  { id: 'dmg', icon: '⚔️', name: 'Damage', base: 10, grow: 1.45 },
+  { id: 'rate', icon: '⚡', name: 'Speed', base: 12, grow: 1.5, max: 25 },
+  { id: 'range', icon: '🎯', name: 'Range', base: 15, grow: 1.55, max: 12 },
+  { id: 'wall', icon: '🧱', name: 'Wall', base: 12, grow: 1.45 },
+  { id: 'splash', icon: '💥', name: 'Splash', base: 40, grow: 1.6, max: 15 },
+  { id: 'multi', icon: '🔱', name: 'Multishot', base: 60, grow: 1.9, max: 6 },
+  { id: 'frost', icon: '❄️', name: 'Frost', base: 45, grow: 1.6, max: 8 },
+  { id: 'gold', icon: '💰', name: 'Gold', base: 25, grow: 1.6, max: 20 },
+];
+const METAS = [
+  { id: 'mGold', icon: '💰', name: 'Head start', desc: '+25 starting gold', base: 4, grow: 1.6 },
+  { id: 'mDmg', icon: '⚔️', name: 'Sharp bolts', desc: '+15% damage', base: 5, grow: 1.7 },
+  { id: 'mWall', icon: '🧱', name: 'Stone walls', desc: '+15% tower HP', base: 5, grow: 1.7 },
+  { id: 'mRate', icon: '⚡', name: 'Quick hands', desc: '+6% attack speed', base: 6, grow: 1.75 },
+  { id: 'mLoot', icon: '🪙', name: 'Looter', desc: '+10% gold', base: 6, grow: 1.75 },
+  { id: 'mCrown', icon: '👑', name: 'Royal favor', desc: '+15% crowns', base: 8, grow: 1.8 },
+];
+let M, T, L, foes, bolts, fx, gold, wave, waveT, spawnT, kills, novaT, partBudget, uiT, tiles, metaTiles, shopEl, forgeEl;
+const fmt = (n) => Kit.fmt(Math.floor(n));
+const upCost = (u) => Math.ceil(u.base * Math.pow(u.grow, L[u.id]));
+const metaCost = (m) => Math.ceil(m.base * Math.pow(m.grow, M.lv[m.id] || 0));
+const ml = (id) => M.lv[id] || 0;
+const stat = {
+  dmg: () => CFG.baseDamage * (1 + 0.4 * L.dmg) * (1 + 0.15 * ml('mDmg')),
+  rate: () => CFG.fireRate * (1 + 0.15 * L.rate) * (1 + 0.06 * ml('mRate')),
+  range: () => CFG.range + 12 * L.range,
+  maxHp: () => CFG.towerHp * (1 + 0.25 * L.wall) * (1 + 0.15 * ml('mWall')),
+  splashR: () => (L.splash ? 18 + 6 * L.splash : 0),
+  frostR: () => (L.frost ? 70 + 8 * L.frost : 0),
+  slow: () => Math.min(0.6, 0.2 + 0.05 * L.frost),
+  goldMul: () => (1 + 0.2 * L.gold) * (1 + 0.1 * ml('mLoot')),
+};
+
+// emoji → cached bitmap so hundreds of enemies draw fast
+const SPR = {};
+function sprite(ch, size, flip) {
+  const k = ch + size + (flip ? 'f' : ''); if (SPR[k]) return SPR[k];
+  const s = Math.ceil(size * 3 * 1.25), c = document.createElement('canvas'); c.width = c.height = s; const x = c.getContext('2d');
+  x.font = size * 3 + 'px system-ui,"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#000';
+  if (flip) { x.translate(s, 0); x.scale(-1, 1); }
+  x.fillText(ch, s / 2, s / 2 + size * 0.18); return (SPR[k] = c);
+}
+
+function layout(g) {
+  const s = window.innerWidth / g.viewW, ph = shopEl && shopEl.offsetHeight ? shopEl.offsetHeight : 190;
+  const top = g.viewY + 70 / s, bot = g.viewY + (window.innerHeight - ph) / s;
+  T.x = 180; T.y = Math.max(top + 90, (top + bot) / 2);
+  T.bot = bot; T.top = top; T.l = g.viewX; T.r = g.viewX + g.viewW;
+}
+// distance from the tower to the edge of the visible field along angle a (so foes appear right at the screen edge)
+function edge(a) {
+  const c = Math.cos(a), s = Math.sin(a); let t = 1e9;
+  if (c > 1e-6) t = Math.min(t, (T.r - T.x) / c); if (c < -1e-6) t = Math.min(t, (T.l - T.x) / c);
+  if (s > 1e-6) t = Math.min(t, (T.bot - T.y) / s); if (s < -1e-6) t = Math.min(t, (T.top - 40 - T.y) / s);
+  return t;
+}
+function spawn(g, def, n, scale) {
+  const a0 = g.rand(0, Math.PI * 2);
+  for (let k = 0; k < n; k++) {
+    const a = a0 + g.rand(-0.16, 0.16), r = edge(a) + def.size * 0.6 + g.rand(0, 26), boss = def === CFG.boss, hz = boss ? 1 : CFG.hordeSize, hp = def.hp * scale / hz;
+    foes.push({ def, x: T.x + Math.cos(a) * r, y: T.y + Math.sin(a) * r, hp, max: hp, r: def.size * 0.45, sp: def.speed * g.rand(0.88, 1.12), ph: g.rand(0, 6), stop: 26 + def.size * 0.35 + g.rand(0, 10), dead: false, hit: 0, pend: 0, hz });
+  }
+}
+function startWave(g) {
+  wave++; g.level = wave; waveT = CFG.waveSeconds;
+  if (wave % CFG.bossEvery === 0) { spawn(g, CFG.boss, 1, Math.pow(CFG.hpGrowth, wave - 1) / Math.pow(CFG.hpGrowth, CFG.bossEvery - 1) * (1 + (wave / CFG.bossEvery - 1) * 0.6)); g.banner('WAVE ' + wave, CFG.boss.icon + ' ' + CFG.boss.name + ' incoming!'); g.sfx('power'); g.shake(6); }
+  else if (wave > 1) g.banner('WAVE ' + wave, wave === 2 ? 'They keep coming…' : '');
+}
+function hurt(g, e, n) {
+  if (e.dead) return; e.hp -= n; e.hit = 0.08;
+  if (e.hp <= 0) {
+    e.dead = true; kills++;
+    const gg = e.def.gold / e.hz * (1 + 0.15 * (wave - 1)) * stat.goldMul(); gold += gg;
+    g.addScore(e.def === CFG.boss ? 500 : Math.max(1, Math.round(e.def.gold / e.hz)));
+    if (partBudget > 0) { partBudget--; g.particles(e.x, e.y, { color: [CFG.accent, '#fff', '#7f1d1d'], n: e.def.size > 30 ? 14 : 4, speed: e.def.size > 30 ? 200 : 110, size: 2.5 }); }
+    if (e.def.size > 30) { g.floatText(e.x, e.y - 20, '+' + fmt(gg) + '💰', '#fde68a', 16); g.sfx(e.def === CFG.boss ? 'explode' : 'pop'); if (e.def === CFG.boss) { g.shake(12); g.flash(CFG.accent, 0.3); } }
+    else if (Math.random() < 0.15) g.sfx('pop');
+  }
+}
+function nearest(n, R) {
+  const best = [];
+  for (const e of foes) {
+    if (e.dead || e.pend >= e.hp) continue; const d = (e.x - T.x) ** 2 + (e.y - T.y) ** 2; if (d > R * R) continue;
+    if (best.length < n) { best.push([d, e]); best.sort((a, b) => a[0] - b[0]); }
+    else if (d < best[n - 1][0]) { best[n - 1] = [d, e]; best.sort((a, b) => a[0] - b[0]); }
+  }
+  return best.map((b) => b[1]);
+}
+function nova(g) {
+  if (novaT > 0 || g.state !== 'play') return; novaT = CFG.novaCooldown;
+  const R = stat.range() * 1.35, d = stat.dmg() * 8; fx.push({ x: T.x, y: T.y, r0: 20, r1: R, t: 0.45, max: 0.45, c: CFG.accent });
+  for (const e of foes) if (!e.dead && Math.hypot(e.x - T.x, e.y - T.y) < R) { hurt(g, e, d); const a = Math.atan2(e.y - T.y, e.x - T.x); e.x += Math.cos(a) * 30; e.y += Math.sin(a) * 30; }
+  g.sfx('explode'); g.shake(10); g.flash('#fff', 0.3); g.vibrate(30);
+}
+function buy(g, u) {
+  if (g.state !== 'play') return; const c = upCost(u);
+  if (u.max && L[u.id] >= u.max) return;
+  if (gold < c) { g.sfx('hit'); g.floatText(T.x, T.y - 70, 'Need ' + fmt(c - gold) + ' more 💰', '#fca5a5', 15); return; }
+  gold -= c; L[u.id]++; g.sfx('coin');
+  if (u.id === 'wall') T.hp = Math.min(stat.maxHp(), T.hp + stat.maxHp() * 0.25);
+  if (L[u.id] === 1 && ['splash', 'multi', 'frost'].includes(u.id)) { g.banner(u.icon + ' ' + u.name + '!', 'New tower power'); g.flash(CFG.accent, 0.2); }
+  g.particles(T.x, T.y, { color: [CFG.accent, '#fff'], n: 10, speed: 160 }); renderUi(g);
+}
+function buyMeta(g, m) {
+  const c = metaCost(m); if (M.crowns < c) { g.sfx('hit'); return; }
+  M.crowns -= c; M.lv[m.id] = ml(m.id) + 1; g.save('meta', M); g.sfx('power'); renderUi(g);
+}
+function buildUi(g) {
+  shopEl = document.getElementById('shop'); forgeEl = document.getElementById('forge');
+  const mk = (box, list, fn) => list.map((u) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'tile'; b.innerHTML = '<em></em><i></i><span></span><b></b>'; b.querySelector('i').textContent = u.icon; b.querySelector('span').textContent = u.name; b.addEventListener('click', () => fn(Kit.current, u)); box.appendChild(b); return { u, b, em: b.querySelector('em'), cost: b.querySelector('b'), name: b.querySelector('span') }; });
+  tiles = mk(document.getElementById('ups'), UPS, buy); metaTiles = mk(document.getElementById('meta'), METAS, buyMeta);
+  document.getElementById('nova').addEventListener('click', () => nova(Kit.current));
+}
+function renderUi(g) {
+  if (!tiles) return;
+  if (L) {
+  document.getElementById('gold').textContent = '💰 ' + fmt(gold);
+  document.getElementById('info').innerHTML = 'Wave ' + wave + '<br>next in ' + Math.ceil(Math.max(0, waveT)) + 's';
+  const nb = document.getElementById('nova'); nb.disabled = novaT > 0; nb.textContent = novaT > 0 ? '💥 ' + Math.ceil(novaT) + 's' : '💥 NOVA';
+  for (const t of tiles) { const maxed = t.u.max && L[t.u.id] >= t.u.max, c = upCost(t.u); t.em.textContent = L[t.u.id] ? String(L[t.u.id]) : ''; t.cost.textContent = maxed ? 'MAX' : fmt(c); t.b.classList.toggle('ok', !maxed && gold >= c); t.b.classList.toggle('no', !maxed && gold < c); t.b.classList.toggle('max', !!maxed); }
+  }
+  document.getElementById('crowns').textContent = '👑 ' + fmt(M.crowns);
+  for (const t of metaTiles) { const c = metaCost(t.u); t.em.textContent = ml(t.u.id) ? String(ml(t.u.id)) : ''; t.name.textContent = t.u.desc; t.cost.textContent = '👑 ' + fmt(c); t.b.classList.toggle('ok', M.crowns >= c); t.b.classList.toggle('no', M.crowns < c); }
+}
+
+const GAME = {
+  title: CFG.title, emoji: CFG.emoji, help: CFG.help, color: CFG.accent, bg: CFG.groundEdge, music: CFG.music, overEmoji: '🔥',
+  init(g) {
+    document.documentElement.style.setProperty('--panel', CFG.panelColor); document.documentElement.style.setProperty('--accent', CFG.accent);
+    M = Object.assign({ crowns: 0, earned: 0, bestWave: 0, lv: {} }, g.load('meta', {}));
+    L = {}; UPS.forEach((u) => { L[u.id] = 0; });
+    T = { x: 180, y: 300, hp: 0, hit: 0, cool: 0, ang: 0, top: 0, bot: 600, l: 0, r: 360 };
+    foes = []; bolts = []; fx = []; gold = CFG.startGold + 25 * ml('mGold'); wave = 0; waveT = 0; spawnT = 1; kills = 0; novaT = 6; partBudget = 30; uiT = 0;
+    if (!tiles) buildUi(g);
+    T.hp = stat.maxHp();
+  },
+  update(g, dt) {
+    layout(g);
+    if (!wave) startWave(g);
+    waveT -= dt; if (waveT <= 0) startWave(g);
+    novaT -= dt; partBudget = Math.min(30, partBudget + dt * 40);
+    if (g.input.keyPressed(' ')) nova(g);
+    for (let k = 0; k < UPS.length; k++) if (g.input.keyPressed(String(k + 1))) buy(g, UPS[k]);
+
+    // spawning: packs from every side, faster and tougher each wave
+    spawnT -= dt;
+    if (spawnT <= 0 && foes.length < 900) {
+      const rate = CFG.spawnRate + CFG.spawnGrowth * (wave - 1), pool = CFG.enemies.filter((e) => wave >= e.from), def = g.pick(pool);
+      const n = def.size > 30 ? 1 : g.randi(2, 3 + Math.floor(wave / 3));
+      spawn(g, def, n, Math.pow(CFG.hpGrowth, wave - 1)); spawnT = n / (rate * CFG.hordeSize);
+    }
+
+    // tower shoots
+    T.cool -= dt; const R = stat.range();
+    if (T.cool <= 0) {
+      const tg = nearest(1 + L.multi, R);
+      if (tg.length) { T.cool = 1 / stat.rate(); T.ang = Math.atan2(tg[0].y - T.y, tg[0].x - T.x); const dm = stat.dmg(); for (const e of tg) { e.pend += dm; bolts.push({ x: T.x, y: T.y - 18, e, ex: e.x, ey: e.y, d: dm }); } if (Math.random() < 0.5) g.sfx('shoot'); }
+    }
+    for (let i = bolts.length - 1; i >= 0; i--) {
+      const b = bolts[i]; if (!b.e.dead) { b.ex = b.e.x; b.ey = b.e.y; }
+      const dx = b.ex - b.x, dy = b.ey - b.y, d = Math.hypot(dx, dy), step = 620 * dt;
+      if (d <= step + 4) {
+        bolts.splice(i, 1); b.e.pend -= b.d; hurt(g, b.e, b.d);
+        const sr = stat.splashR(); if (sr) { fx.push({ x: b.ex, y: b.ey, r0: 4, r1: sr, t: 0.22, max: 0.22, c: '#fb923c' }); const sd = b.d * (0.4 + 0.05 * L.splash); for (const e of foes) if (e !== b.e && !e.dead && Math.abs(e.x - b.ex) < sr && Math.abs(e.y - b.ey) < sr && (e.x - b.ex) ** 2 + (e.y - b.ey) ** 2 < sr * sr) hurt(g, e, sd); }
+      } else { b.x += dx / d * step; b.y += dy / d * step; }
+    }
+
+    // horde moves in and chews on the wall
+    const fr = stat.frostR(), slow = stat.slow(); let chew = 0;
+    for (const e of foes) {
+      if (e.dead) continue; e.hit -= dt;
+      const dx = T.x - e.x, dy = T.y - e.y, d = Math.hypot(dx, dy) || 1;
+      if (d > e.stop) { const sp = e.sp * (fr && d < fr ? 1 - slow : 1); e.x += dx / d * sp * dt; e.y += dy / d * sp * dt; e.flip = dx > 0; }
+      else chew += e.def.dps / e.hz * dt * Math.pow(1.06, wave - 1);
+    }
+    if (chew > 0) { T.hp -= chew; T.hit = 0.1; if (Math.random() < dt * 6) g.sfx('hit'); }
+    else T.hp = Math.min(stat.maxHp(), T.hp + stat.maxHp() * 0.01 * dt);
+    T.hit -= dt;
+    for (let i = fx.length - 1; i >= 0; i--) { fx[i].t -= dt; if (fx[i].t <= 0) fx.splice(i, 1); }
+    let w = 0; for (const e of foes) if (!e.dead) foes[w++] = e; foes.length = w;
+
+    if (T.hp <= 0) {
+      T.hp = 0; const crowns = Math.max(1, Math.floor((wave * CFG.crownsPerWave + kills / 50) * (1 + 0.15 * ml('mCrown'))));
+      M.crowns += crowns; M.earned += crowns; M.bestWave = Math.max(M.bestWave, wave); g.save('meta', M);
+      GAME.overText = 'Fell on wave ' + wave + ' · +' + crowns + ' 👑';
+      g.particles(T.x, T.y, { color: [CFG.accent, '#fff', '#ef4444'], n: 60, speed: 300 }); g.shake(16); g.flash('#ef4444', 0.4);
+      g.over(); return;
+    }
+    uiT -= dt; if (uiT <= 0) { uiT = 0.15; renderUi(g); }
+  },
+  draw(g, ctx) {
+    if (!M) M = Object.assign({ crowns: 0, earned: 0, bestWave: 0, lv: {} }, g.load('meta', {}));
+    if (!tiles) buildUi(g);
+    const playing = !!T && (g.state === 'play' || g.state === 'pause'), forge = (g.state === 'over' || g.state === 'menu') && M.earned > 0;
+    if (shopEl && shopEl.style.display !== (playing ? 'flex' : 'none')) shopEl.style.display = playing ? 'flex' : 'none';
+    if (forgeEl && forgeEl.style.display !== (forge ? 'flex' : 'none')) { forgeEl.style.display = forge ? 'flex' : 'none'; document.body.classList.toggle('forge', forge); if (forge) renderUi(g); }
+    if (!T) { g.clear(CFG.groundEdge); return; }
+    const X = g.viewX, Y = g.viewY, W = g.viewW, H = g.viewH;
+    const bg = ctx.createRadialGradient(T.x, T.y, 30, T.x, T.y, Math.max(W, H) * 0.75); bg.addColorStop(0, CFG.ground); bg.addColorStop(1, CFG.groundEdge); ctx.fillStyle = bg; ctx.fillRect(X, Y, W, H);
+    for (let k = 1; k <= 4; k++) g.ring(T.x, T.y, k * 70, 'rgba(255,255,255,.035)', 1.5);
+    const fr = stat.frostR(); if (fr) { g.circle(T.x, T.y, fr, 'rgba(125,211,252,.10)'); g.ring(T.x, T.y, fr, 'rgba(186,230,253,.35)', 1.5); }
+    g.ring(T.x, T.y, stat.range(), 'rgba(255,255,255,.16)', 1.5);
+    // horde
+    for (const e of foes) {
+      const sz = e.def.size, im = sprite(e.def.icon, sz, e.flip), s = sz * 1.25, bob = Math.sin(g.t * 9 + e.ph) * 1.5;
+      ctx.drawImage(im, e.x - s / 2, e.y - s / 2 + bob, s, s);
+      if (sz > 30) { g.rect(e.x - sz / 2, e.y - sz * 0.75, sz, 5, 'rgba(0,0,0,.55)', 3); g.rect(e.x - sz / 2, e.y - sz * 0.75, sz * Math.max(0, e.hp / e.max), 5, '#ef4444', 3); }
+    }
+    // tower
+    g.circle(T.x, T.y + 22, 30, 'rgba(0,0,0,.35)'); g.circle(T.x, T.y + 4, 30, CFG.groundEdge); g.ring(T.x, T.y + 4, 30, CFG.accent, 3);
+    g.emoji(CFG.tower, T.x + (T.hit > 0 ? g.rand(-2, 2) : 0), T.y - 4, 54);
+    const hpw = 70, k = Math.max(0, T.hp / stat.maxHp()); g.rect(T.x - hpw / 2, T.y + 40, hpw, 8, 'rgba(0,0,0,.6)', 4); g.rect(T.x - hpw / 2, T.y + 40, hpw * k, 8, k > 0.5 ? '#22c55e' : k > 0.25 ? '#f59e0b' : '#ef4444', 4);
+    ctx.globalCompositeOperation = 'lighter';
+    for (const b of bolts) { g.circle(b.x, b.y, 6, CFG.boltColor + '55'); g.circle(b.x, b.y, 2.6, '#fff'); }
+    for (const f of fx) { const q = 1 - f.t / f.max; ctx.globalAlpha = f.t / f.max; g.ring(f.x, f.y, f.r0 + (f.r1 - f.r0) * q, f.c, 4); g.circle(f.x, f.y, f.r0 + (f.r1 - f.r0) * q, f.c + '22'); ctx.globalAlpha = 1; }
+    ctx.globalCompositeOperation = 'source-over';
+    if (g.state === 'play') g.text('Wave ' + wave + (foes.length > 40 ? ' · ' + foes.length + ' foes' : ''), 180, T.top + 6, { size: 13, weight: 900, color: '#ffffffcc' });
+  },
+};
+Kit.game(GAME);
+</script>
+</body>
+</html>
