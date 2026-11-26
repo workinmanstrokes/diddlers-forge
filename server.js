@@ -14,11 +14,12 @@ const fsp = fs.promises;
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { spawn, exec } = require('child_process');
+const { spawn, exec, execFile } = require('child_process');
 const Build = require('./public/shared/build.js');
 const Harness = require('./public/shared/harness.js');
+const Update = require('./lib/update.js');
 
-const VERSION = '3.4.0';
+const VERSION = require('./package.json').version;
 const argv = process.argv.slice(2);
 const arg = (/** @type {string} */ name, /** @type {string} */ def) => { const i = argv.indexOf('--' + name); return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : def; };
 const flag = (/** @type {string} */ name) => argv.includes('--' + name);
@@ -256,10 +257,48 @@ function ollamaGet(/** @type {string} */ p, /** @type {number} */ timeout = 2000
   });
 }
 async function ollamaPing() { const r = /** @type {any} */ (await ollamaGet('/api/version')); return r.ok ? { ok: true, version: r.data && r.data.version } : { ok: false, error: r.error || 'Not reachable' }; }
-function lanUrls() {
+/** This machine's Wi-Fi/LAN IPv4 addresses. Android (Termux) can refuse to list interfaces, so never throw. */
+function lanIPv4s() {
   const out = [];
-  for (const list of Object.values(os.networkInterfaces())) for (const ni of list || []) if (ni.family === 'IPv4' && !ni.internal) out.push('http://' + ni.address + ':' + PORT);
+  let nets = {}; try { nets = os.networkInterfaces(); } catch (e) { return out; }
+  for (const list of Object.values(nets)) for (const ni of list || []) if ((ni.family === 'IPv4' || /** @type {any} */ (ni.family) === 4) && !ni.internal) out.push(ni.address);
   return out;
+}
+const lanUrls = () => lanIPv4s().map((ip) => 'http://' + ip + ':' + PORT);
+
+// ---------- find Ollama on this machine or the Wi-Fi (phone + Termux, a gaming PC…) ----------
+/** @param {string} url @param {number} timeout @returns {Promise<any>} */
+async function getJsonQuick(url, timeout) {
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(timeout) });
+    if (!r.ok) return null; return await r.json();
+  } catch (e) { return null; }
+}
+/** Probe localhost and every address on this machine's /24 networks for an Ollama server.
+ * @param {{port?:number, subnets?:string[], timeout?:number}} [o] */
+async function findOllama(o = {}) {
+  const port = Math.max(1, Math.min(65535, Number(o.port) || 11434)); const timeout = o.timeout || 800;
+  const subnets = new Set((o.subnets || []).filter((s) => /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(s)));
+  for (const ip of lanIPv4s()) subnets.add(ip.split('.').slice(0, 3).join('.'));
+  const urls = new Set(['http://127.0.0.1:' + port]);
+  try { const cur = new URL(settings.ollamaUrl); urls.add(cur.protocol + '//' + cur.host); } catch (e) { /* bad url in settings */ }
+  for (const s of [...subnets].slice(0, 4)) for (let i = 1; i < 255; i++) urls.add('http://' + s + '.' + i + ':' + port);
+  const list = [...urls]; const found = []; let next = 0;
+  const self = new Set(['127.0.0.1', ...lanIPv4s()]);
+  async function worker() {
+    while (next < list.length) {
+      const base = list[next++];
+      const v = await getJsonQuick(base + '/api/version', timeout);
+      if (!v || typeof v.version !== 'string') continue;
+      const tags = await getJsonQuick(base + '/api/tags', 3000);
+      const host = new URL(base).hostname;
+      found.push({ url: base, version: v.version, models: tags && Array.isArray(tags.models) ? tags.models.length : 0, thisMachine: self.has(host), current: base === settings.ollamaUrl.replace(/\/$/, '') });
+    }
+  }
+  await Promise.all(Array.from({ length: 64 }, worker));
+  found.sort((a, b) => Number(b.current) - Number(a.current) || Number(b.thisMachine) - Number(a.thisMachine) || b.models - a.models);
+  const seen = new Set(); const uniq = found.filter((f) => { const k = f.thisMachine ? 'self' : f.url; if (seen.has(k)) return false; seen.add(k); return true; });
+  return { port, scanned: list.length, subnets: [...subnets].slice(0, 4), found: uniq };
 }
 
 // ---------- hardware monitor ----------
@@ -541,6 +580,105 @@ async function bundleLibs(/** @type {string} */ id, /** @type {string[]} */ urls
   return { results, ...r };
 }
 
+// ---------- studio updates (git pull, or download the newest version from GitHub) ----------
+const UPDATE_SRC = { repo: arg('update-repo', process.env.FORGE_UPDATE_REPO || 'workinmanstrokes/diddlers-forge'), branch: arg('update-branch', process.env.FORGE_UPDATE_BRANCH || 'main'), base: arg('update-url', process.env.FORGE_UPDATE_URL || '') };
+const ROOT = __dirname;
+let updateBusy = false;
+/** @param {string[]} args @returns {Promise<{ok:boolean,out:string}>} */
+function git(args, timeout = 20000) {
+  return new Promise((resolve) => {
+    execFile('git', args, { cwd: ROOT, timeout, windowsHide: true, maxBuffer: 4e6 }, (err, stdout, stderr) => resolve({ ok: !err, out: String(err ? stderr || err.message : stdout).trim() }));
+  });
+}
+async function isGitInstall() {
+  if (UPDATE_SRC.base || flag('no-git-update')) return false;
+  try { await fsp.access(path.join(ROOT, '.git')); } catch (e) { return false; }
+  return (await git(['rev-parse', '--is-inside-work-tree'], 5000)).ok;
+}
+async function updateStatus() {
+  const base = { current: VERSION, repo: UPDATE_SRC.repo, branch: UPDATE_SRC.branch };
+  if (await isGitInstall()) {
+    const up = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], 5000);
+    if (!up.ok) return { ...base, mode: 'git', available: false, error: 'This copy has no upstream branch to update from (git: ' + up.out.slice(0, 120) + ').' };
+    const f = await git(['fetch', '--quiet'], 30000);
+    if (!f.ok) return { ...base, mode: 'git', available: false, error: 'Could not reach GitHub: ' + f.out.slice(0, 160) };
+    const behind = Number((await git(['rev-list', '--count', 'HEAD..@{u}'])).out) || 0;
+    const notes = behind ? (await git(['log', '--format=%s', '-n', '12', 'HEAD..@{u}'])).out.split('\n').filter(Boolean) : [];
+    const remotePkg = await git(['show', '@{u}:package.json']);
+    let latest = VERSION; try { latest = JSON.parse(remotePkg.out).version || VERSION; } catch (e) { /* keep */ }
+    const dirty = (await git(['status', '--porcelain', '--untracked-files=no'])).out.split('\n').filter(Boolean).map((l) => l.slice(3));
+    return { ...base, mode: 'git', latest, behind, available: behind > 0, notes, dirty, upstream: up.out };
+  }
+  const src = Update.sources(UPDATE_SRC);
+  try {
+    const r = await fetch(src.pkg, { signal: AbortSignal.timeout(15000), headers: { 'user-agent': 'DiddlersForge/' + VERSION, 'cache-control': 'no-cache' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const latest = String((await r.json()).version || '');
+    return { ...base, mode: 'download', latest, available: Update.semverCmp(latest, VERSION) > 0, notes: [] };
+  } catch (e) { return { ...base, mode: 'download', available: false, error: 'Could not check GitHub: ' + /** @type {any} */ (e).message }; }
+}
+async function applyUpdate() {
+  if (updateBusy) throw httpErr(409, 'An update is already running');
+  updateBusy = true;
+  try {
+    if (await isGitInstall()) {
+      const st = await updateStatus();
+      if (st.error) throw httpErr(502, st.error);
+      if (!st.available) return { ok: true, updated: false, version: VERSION, message: 'Already up to date' };
+      if (st.dirty && st.dirty.length) throw httpErr(409, 'Studio files were changed on this PC (' + st.dirty.slice(0, 4).join(', ') + '). Commit or undo them, then update.');
+      const before = (await git(['rev-parse', '--short', 'HEAD'])).out;
+      const pull = await git(['pull', '--ff-only'], 120000);
+      if (!pull.ok) throw httpErr(500, 'git pull failed: ' + pull.out.slice(0, 300));
+      const after = (await git(['rev-parse', '--short', 'HEAD'])).out;
+      log('info', 'studio updated with git ' + before + ' → ' + after);
+      return { ok: true, updated: true, mode: 'git', from: VERSION, version: st.latest, restart: true, message: 'Updated ' + before + ' → ' + after };
+    }
+    const src = Update.sources(UPDATE_SRC);
+    const r = await fetch(src.tarball, { redirect: 'follow', signal: AbortSignal.timeout(120000), headers: { 'user-agent': 'DiddlersForge/' + VERSION } });
+    if (!r.ok) throw httpErr(502, 'Download failed: HTTP ' + r.status);
+    const buf = Buffer.from(await r.arrayBuffer()); if (buf.length > 60e6) throw httpErr(413, 'Download is unexpectedly large');
+    const files = Update.stripTop(Update.readTar(buf));
+    const chk = Update.validate(files); if (chk.error) throw httpErr(422, chk.error);
+    if (Update.semverCmp(chk.version, VERSION) < 0) throw httpErr(409, 'The download (' + chk.version + ') is older than this studio (' + VERSION + ')');
+    const readCur = (/** @type {string} */ p) => { try { return fs.readFileSync(path.join(ROOT, p)); } catch (e) { return null; } };
+    const d = Update.diffFiles(files, readCur);
+    const touch = new Set([...d.changed, ...d.added]);
+    // Windows reads a running .cmd file as it goes, so never rewrite the launcher loop that is running us right now
+    if (IS_WIN && process.env.FORGE_LAUNCHER && touch.delete('forge-loop.cmd')) log('info', 'update: kept the running forge-loop.cmd (copy the new one from GitHub by hand if a release notes a change to it)');
+    if (!touch.size) return { ok: true, updated: false, version: VERSION, message: 'Already up to date' };
+    const backup = path.join(DATA, 'backups', 'studio-' + VERSION + '-' + new Date().toISOString().replace(/[:.]/g, '-'));
+    for (const p of d.changed) { const cur = readCur(p); if (cur) await writeFileAtomic(path.join(backup, p), cur); }
+    // write code before the launchers, so a half-finished update never leaves a broken start script
+    const order = files.filter((f) => touch.has(f.path)).sort((a, b) => Number(/\.(bat|cmd|sh)$/.test(a.path)) - Number(/\.(bat|cmd|sh)$/.test(b.path)));
+    for (const f of order) {
+      const dest = path.join(ROOT, f.path);
+      if (!dest.startsWith(ROOT + path.sep)) continue;
+      await writeFileAtomic(dest, f.data);
+      if (f.path.endsWith('.sh')) { try { await fsp.chmod(dest, 0o755); } catch (e) { /* Windows */ } }
+    }
+    log('info', 'studio updated by download ' + VERSION + ' → ' + chk.version + ' (' + touch.size + ' files, backup ' + backup + ')');
+    return { ok: true, updated: true, mode: 'download', from: VERSION, version: chk.version, restart: true, files: touch.size, backup, message: 'Updated ' + VERSION + ' → ' + chk.version };
+  } finally { updateBusy = false; }
+}
+/** @type {http.Server|null} */
+let SERVER = null;
+const RESTART_CODE = 75;
+/** Restart in place. The launchers (Start Diddler’s Forge.bat, start.sh) loop on exit code 75; otherwise start a new copy. */
+function restartStudio() {
+  log('info', 'restart requested');
+  try { fs.writeFileSync(path.join(DATA, '.restarting'), String(Date.now())); } catch (e) { /* only stops the browser re-opening */ }
+  const done = () => {
+    if (process.env.FORGE_LAUNCHER) return process.exit(RESTART_CODE);
+    const args = [__filename, ...argv.filter((a) => a !== '--open')];
+    const env = { ...process.env, FORGE_RESTARTED: '1' };
+    if (IS_WIN) spawn('cmd.exe', ['/c', 'start', 'Diddlers Forge', '/min', process.execPath, ...args], { cwd: ROOT, env, detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    else spawn(process.execPath, args, { cwd: ROOT, env, detached: false, stdio: 'inherit' });
+    setTimeout(() => process.exit(0), 200);
+  };
+  if (SERVER) { SERVER.close(); /** @type {any} */ (SERVER).closeAllConnections && /** @type {any} */ (SERVER).closeAllConnections(); }
+  setTimeout(done, 300);
+}
+
 // ---------- auth ----------
 function authed(/** @type {http.IncomingMessage} */ req) {
   if (!PIN) return true;
@@ -564,7 +702,7 @@ async function handle(req, res) {
 
   if (p.startsWith('/api/')) {
     if (p === '/api/health') {
-      return send(res, 200, { ok: true, version: VERSION, needsPin: !!PIN, authed: authed(req), local: isLocalReq(req), terminal: terminalAllowed(req), lan: lanUrls(), port: PORT,
+      return send(res, 200, { ok: true, version: VERSION, needsPin: !!PIN, authed: authed(req), local: isLocalReq(req), terminal: terminalAllowed(req), lan: lanUrls(), port: PORT, launcher: !!process.env.FORGE_LAUNCHER,
         ram: os.totalmem(), ollama: { url: settings.ollamaUrl, ...(await ollamaPing()) } });
     }
     if (p === '/api/login' && m === 'POST') {
@@ -602,6 +740,21 @@ async function handle(req, res) {
     if (p === '/api/shutdown' && m === 'POST') {
       if (!isLocalReq(req)) return send(res, 403, { error: 'Only from the PC itself' });
       log('info', 'shutdown requested'); send(res, 200, { ok: true }); setTimeout(() => process.exit(0), 300); return;
+    }
+    if (p === '/api/update') {
+      if (m === 'GET') return send(res, 200, await updateStatus());
+      if (m === 'POST') {
+        if (!terminalAllowed(req)) return send(res, 403, { error: 'Updates can be installed from the PC running the studio, or from your phone when the studio was started with a PIN.' });
+        return send(res, 200, await applyUpdate());
+      }
+    }
+    if (p === '/api/restart' && m === 'POST') {
+      if (!terminalAllowed(req)) return send(res, 403, { error: 'Restart from the PC running the studio, or start it with a PIN to restart from your phone.' });
+      send(res, 200, { ok: true }); restartStudio(); return;
+    }
+    if (p === '/api/find-ollama') {
+      const subnets = String(u.searchParams.get('subnet') || '').split(',').map((x) => x.trim().split('.').slice(0, 3).join('.')).filter(Boolean);
+      return send(res, 200, await findOllama({ port: Number(u.searchParams.get('port')) || 11434, subnets, timeout: Number(u.searchParams.get('timeout')) || 800 }));
     }
 
     if (p === '/api/projects') {
@@ -745,6 +898,9 @@ async function handle(req, res) {
 async function main() {
   await fsp.mkdir(PROJ, { recursive: true });
   await loadSettings(); await loadKits();
+  let restarted = !!process.env.FORGE_RESTARTED;
+  try { const t = Number(await fsp.readFile(path.join(DATA, '.restarting'), 'utf8')); await fsp.unlink(path.join(DATA, '.restarting')); if (Date.now() - t < 120000) restarted = true; } catch (e) { /* normal start */ }
+  const openBrowser = flag('open') && !restarted; let busyTries = 0;
   for (const f of Build.KIT_FILES) fs.watchFile(path.join(PUBLIC, f), { interval: 1500 }, () => loadKits().catch(() => {}));
   const server = http.createServer((req, res) => {
     handle(req, res).catch((e) => {
@@ -753,9 +909,10 @@ async function main() {
       if (!res.headersSent) send(res, status, { error: String(e && e.message || e) }); else res.end();
     });
   });
-  server.requestTimeout = 0; server.headersTimeout = 60000;
+  server.requestTimeout = 0; server.headersTimeout = 60000; SERVER = server;
   server.on('error', (e) => {
-    if (/** @type {any} */ (e).code === 'EADDRINUSE') { console.log('\n  Port ' + PORT + ' is busy — the studio is probably already running: http://localhost:' + PORT + '\n'); if (flag('open')) openUrl('http://localhost:' + PORT); process.exit(0); }
+    if (/** @type {any} */ (e).code === 'EADDRINUSE' && restarted && busyTries++ < 20) { setTimeout(() => server.listen(PORT, HOST), 500); return; }
+    if (/** @type {any} */ (e).code === 'EADDRINUSE') { console.log('\n  Port ' + PORT + ' is busy — the studio is probably already running: http://localhost:' + PORT + '\n'); if (openBrowser) openUrl('http://localhost:' + PORT); process.exit(0); }
     throw e;
   });
   server.listen(PORT, HOST, async () => {
@@ -767,7 +924,7 @@ async function main() {
     console.log('  Ollama: ' + settings.ollamaUrl + (o.ok ? '  ✅ v' + (o.version || '?') : '  ❌ not reachable — start Ollama'));
     console.log('  PIN:    ' + (PIN ? 'on' : 'off (add --pin 1234 to protect it on shared Wi-Fi and to allow the terminal from your phone)'));
     console.log('  Data:   ' + DATA + '\n  Keep this window open while you use the studio.\n');
-    if (flag('open')) openUrl('http://localhost:' + PORT);
+    if (openBrowser) openUrl('http://localhost:' + PORT);
   });
 }
 function openUrl(/** @type {string} */ url) { exec((IS_WIN ? 'start "" "' : process.platform === 'darwin' ? 'open "' : 'xdg-open "') + url + '"', () => {}); }

@@ -18,5 +18,6 @@ if not errorlevel 1 (
   start "" http://localhost:4848
   exit /b 0
 )
-start "Diddler's Forge" /min cmd /k node server.js --open %*
+rem forge-loop.cmd restarts the studio after an update (exit code 75).
+start "Diddler's Forge" /min cmd /k forge-loop.cmd --open %*
 exit /b 0

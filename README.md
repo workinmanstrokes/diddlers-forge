@@ -5,6 +5,13 @@ Describe an idea. The **Architect** plans it and asks you questions, **you appro
 
 No cloud, no API keys, no `npm install`. It's one Node server with zero dependencies.
 
+### New in 3.5: updates, phone + Wi-Fi Ollama, and a real test suite
+- **⬇ Studio updates:** Settings → Updates checks GitHub and installs the newest Diddler’s Forge with one tap, then restarts itself. A git copy updates with `git pull`; a zip copy downloads the new version, checks it, and keeps a backup of every replaced file in `data/backups/`. Your projects in `data/` are never touched. Once a day the studio quietly tells you when an update is out.
+- **🔎 Find Ollama:** one tap scans this device and your Wi-Fi for Ollama servers and lists how many models each has. Handy when Ollama runs on a gaming PC, or when the studio runs on your phone in Termux.
+- **📱 Phone-only mode:** `./start.sh --with-ollama` in Termux starts Ollama on the phone too (after `pkg install ollama`).
+- **Lean edits on the fast model:** “make it blue”-style tuning now runs on the small, fast model (it's a tiny JSON change that gets checked, with a normal patch as the fallback).
+- **Studio tests + CI:** `npm test` runs 54 checks of the server, engine, all 22 starters and the updater against a fake Ollama, on Windows and Linux, Node 18 and 22, on every push.
+
 ### New in 3.0: same quality, a fraction of the tokens
 - **⚡ 22 starter recipes:** finished, tested games and apps (space shooter, bullet-heaven zombie survival, endless runner, flappy, fruit catcher, brick breaker, snake, match-3, idle tycoon, a Michigan fishing game, 3-on-3 hockey, 3-on-3 basketball, tower defense, incremental tower defense, top-down racer, deckbuilder card battler, match-3 puzzle battle, cat logic puzzle, habit tracker, budget, interval timer and notes). Tap one to build it for **0 tokens**. If your idea matches one, the AI only re-themes and adjusts it, which takes about **1k output tokens instead of 3–7k**.
 - **🎛 Tuner:** every starter keeps its colors, emoji, names, speeds and difficulty in one tuning block. Change them with sliders and color pickers, try 3 one-tap themes or 🎲 random colors, and watch a live preview. **No AI, 0 tokens.**
@@ -30,7 +37,8 @@ No cloud, no API keys, no `npm install`. It's one Node server with zero dependen
 | `Start Diddler’s Forge.bat` | Starts the studio and opens it. If it's already running, it just opens it. |
 | `Start with PIN (phone terminal).bat` | Asks for a PIN. It protects the studio on Wi-Fi and lets your phone use the terminal. |
 | `Stop Diddler’s Forge.bat` | Stops the studio. |
-| `start.sh` | The same for Mac, Linux, or Android (Termux). |
+| `forge-loop.cmd` | Used by the Start file: runs the studio and brings it back after an update. |
+| `start.sh` | The same for Mac, Linux, or Android (Termux). Add `--with-ollama` to also start Ollama in Termux. |
 
 Keep the small console window open while you use the studio. There's also a **⏻ Stop studio** button in Monitor.
 
@@ -42,6 +50,16 @@ The studio server talks to Ollama for you, so **Ollama can stay on localhost**. 
 - **Install the studio itself as an app** (optional): Chrome only installs apps from secure addresses. Open `chrome://flags/#unsafely-treat-insecure-origin-as-secure` on the phone, add `http://YOUR-PC-IP:4848`, and relaunch Chrome. Then use ⋮ → **Install app**.
 - **Install the games and apps you make**: promote a build to Production, then open `http://YOUR-PC-IP:4848/play/<id>/` → ⋮ → Install. For an install that works anywhere, export the **PWA .zip** and put it on GitHub Pages (steps are in the zip's README).
 - On shared Wi-Fi, start with a PIN. Never expose port 4848 to the internet.
+
+### Where Ollama can run
+| Setup | What to do |
+|---|---|
+| **Studio and Ollama on your PC** (normal) | Nothing. Open the studio on your phone at the Phone address. |
+| **Ollama on another PC** (e.g. a gaming PC) | On that PC set the environment variable `OLLAMA_HOST=0.0.0.0` (Windows: Settings → System → About → Advanced system settings → Environment Variables), quit Ollama from the tray and start it again, and allow port 11434 through its firewall on private networks. Then Settings → **🔎 Find Ollama** → **Use**. |
+| **Studio on your phone, Ollama on your PC** | Run the studio in Termux (`pkg install nodejs git`, then `git clone https://github.com/workinmanstrokes/diddlers-forge && cd diddlers-forge && ./start.sh`). Set `OLLAMA_HOST=0.0.0.0` on the PC as above, then **🔎 Find Ollama** in the studio. |
+| **Everything on your phone** | In Termux: `pkg install nodejs ollama`, then `./start.sh --with-ollama`. Use a small model such as `qwen2.5-coder:1.5b` or `qwen2.5-coder:3b`. |
+
+`OLLAMA_ORIGINS` is never needed: the studio server talks to Ollama, not your browser.
 
 ---
 
@@ -81,6 +99,10 @@ The Critic reads the playtest numbers and your code, then gives honest, construc
 - **Editor:** file explorer, multi-file projects, syntax highlighting, ▶ Run (preview without saving), 💾 Save (all changed files become one version), new / rename / delete / download, and uploads of images, sounds and data.
 - **Terminal:** runs commands **on the PC** inside a workspace copy of the project (`data/workspace/<id>`). Try `git init`, `npm init -y`, `node -v`, or a formatter. Files the terminal changes can be saved back as a version. It only works from the PC itself, or from your phone when the studio was started with a PIN. There's also **📂 Open folder**.
 - **Libraries:** the studio finds external files (CDN links) that would break offline and **bundles them into `vendor/`**. You approve each download. You can also add a library by URL (canvas-confetti, matter-js and howler are one tap away), and the AI is told which ones are available.
+
+### Updating the studio
+Settings → **Updates** → *Check for updates* → **⬇ Update now** → **↻ Restart now**. You can also do it by hand: `git pull` in a git copy, or download the newest zip from GitHub and copy your old `data/` folder into it.
+Updates install from the PC running the studio, or from your phone when the studio was started with a PIN. Download installs refuse anything that isn't Diddler’s Forge, is older than what you have, or has broken code, and nothing is written until those checks pass.
 
 ### Ship tab
 Dev / Staging / Production with **manual Promote**, so nothing goes live by itself. Exports: **PWA .zip** (every file plus manifest, service worker and icons, ready for GitHub Pages) or a **single HTML file**.
@@ -160,6 +182,7 @@ On a 16 GB RAM PC with integrated graphics, expect a few to ~10 tokens/second fo
 | 3.2 | Hold the Tower, an incremental tower defense starter with a permanent upgrade workshop |
 | 3.3 | Gem Clash, a match-3 puzzle battle starter |
 | 3.4 | Cat Spots, a cat logic puzzle starter with a unique-solution generator; kit guards against a zero-size window |
+| 3.5 | One-tap studio updates with restart, Ollama finder for Wi-Fi and Termux, lean edits on the fast model, 54-test suite + GitHub CI |
 
 ---
 
@@ -172,10 +195,13 @@ On a 16 GB RAM PC with integrated graphics, expect a few to ~10 tokens/second fo
 - **Ollama address:** point it at another machine, e.g. a gaming PC: `http://192.168.1.50:11434`.
 
 Command-line options: `node server.js --port 4848 --host 0.0.0.0 --pin 1234 --ollama http://127.0.0.1:11434 --data ./data --open`
+Update options: `--update-repo owner/repo`, `--update-branch main`, `--no-git-update` (always use the download updater).
 
 ## Folders
 ```
-server.js              zero-dependency server (API, Ollama proxy, storage, terminal, monitor)
+server.js              zero-dependency server (API, Ollama proxy, storage, terminal, monitor, updates)
+lib/update.js          studio self-update (tar reader, safety checks)
+test/                  npm test: server, engine, starters and updater against a fake Ollama
 public/                the studio (PWA): index.html, app.js, engine.js, tester.js, styles.css
 public/shared/         build + test-harness code shared by browser and server
 public/kit/            game.js, app.js, ui.css — what generated apps are built on
@@ -189,3 +215,8 @@ data/                  your projects, versions (deduplicated), workspace, logs, 
 - **Phone can't connect:** same Wi-Fi? Allow Node through Windows Firewall (private networks) the first time it asks.
 - **A build broke something:** Ship → Versions → ↺ Restore, or tap 🐞 Fix bugs.
 - **Deleted a project by mistake:** it's in `data/trash/`. Move the folder back into `data/projects/`.
+- **An update broke something:** the replaced files are in `data/backups/studio-<old version>-<time>/`. Copy them back over the studio folder, or in a git copy run `git log` and `git checkout <old commit>`.
+- **Find Ollama shows nothing on the phone (Termux):** Android sometimes hides the Wi-Fi address from apps. Type the PC's address in Settings instead, e.g. `http://192.168.1.50:11434`.
+
+## Developing
+`npm run check` checks syntax, `npm test` runs the test suite (no installs needed, Node 18+). GitHub Actions runs both on Windows and Linux for every push and pull request.

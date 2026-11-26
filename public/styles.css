@@ -383,3 +383,8 @@ details.roles{margin:4px 0 12px}details.roles summary{cursor:pointer;color:var(-
   .tn-dev{width:min(38vw,150px);border-width:4px;border-radius:16px}
   .tn-prev .hint{font-size:11px}
 }
+/* 3.5: Ollama finder, studio updates */
+.found{margin-top:8px}.found .lan{font:13px/1.35 ui-sans-serif,system-ui,sans-serif}
+.upd{margin-top:8px}.upd-card{padding:12px 14px;border-radius:14px;background:linear-gradient(135deg,rgba(139,92,246,.14),rgba(34,211,238,.06));border:1px solid var(--line2)}
+.upd-card ul{margin:8px 0;padding-left:18px;color:var(--muted)}.upd-card .btn{margin-top:6px}
+.restart-veil{position:fixed;inset:0;z-index:999;display:grid;place-items:center;background:rgba(10,13,24,.88);backdrop-filter:blur(6px);font-size:17px;padding:24px;text-align:center}

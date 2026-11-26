@@ -105,6 +105,8 @@
     try { S.health = await api('/health'); } catch (e) { S.health = { ok: false, ollama: { ok: false, error: e.message } }; }
     renderStatus();
   }
+  /** Lean CFG edits are tiny JSON changes (checked by mergeCfg, with a normal patch as fallback), so the fast model does them. */
+  const leanModel = () => (S.settings.roles && S.settings.roles.coder) || S.settings.fastModel || S.settings.codeModel;
   const roleModel = (r) => (S.settings.roles && S.settings.roles[r]) || (r === 'architect' || r === 'qa' ? S.settings.fastModel || S.settings.codeModel : S.settings.codeModel);
   async function loadModels() {
     try {
@@ -143,7 +145,7 @@
     if (o && o.ok && S.models.length) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
     el.innerHTML = !o || !o.ok
-      ? `<h3>🔌 Connect Ollama</h3><p class="muted">The studio can't reach Ollama at <code>${esc(o ? o.url : '…')}</code>.</p><ol><li>Install Ollama from <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com</a> on your PC and start it.</li><li>Pull a coding model, e.g. <code>ollama pull qwen2.5-coder:7b</code></li><li>Ollama on another machine? Set its address in <a href="#" data-act="settings">Settings</a>.</li></ol>`
+      ? `<h3>🔌 Connect Ollama</h3><p class="muted">The studio can't reach Ollama at <code>${esc(o ? o.url : '…')}</code>.</p><ol><li>Install Ollama from <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com</a> on your PC and start it.</li><li>Pull a coding model, e.g. <code>ollama pull qwen2.5-coder:7b</code></li><li>Ollama on another machine? Set its address in <a href="#" data-act="settings">Settings</a>.</li></ol><p><button class="btn sm" data-act="find-ollama">🔎 Find Ollama on my Wi-Fi</button></p>`
       : `<h3>📦 Get a model</h3><p class="muted">Ollama is running, but there are no models yet. For a 16 GB PC start with <b>qwen2.5-coder:7b</b> and <b>qwen2.5-coder:3b</b>.</p><p><button class="btn primary sm" data-act="settings">Open Settings → pull a model</button></p>`;
   }
   function ready() {
@@ -459,7 +461,7 @@
 
   // ---------- model calls ----------
   async function call(role, messages, card, opts = {}) {
-    const model = roleModel(role);
+    const model = opts.model || roleModel(role);
     const r = await Engine.chat({ model, messages, settings: S.settings, signal: S.abort && S.abort.signal, maxOut: opts.maxOut, temperature: opts.temperature, format: opts.format, onToken: (t) => card && card.stream(t) });
     if (S.job) { S.job.in += r.stats.in; S.job.out += r.stats.out; S.job.ms += r.stats.ms; }
     if (card && r.stats.evalMs) card.log(role, `${fmtTok(r.stats.out)} tokens out · ${(r.stats.out / (r.stats.evalMs / 1000)).toFixed(1)} tok/s${r.stats.loadMs > 2000 ? ' · model load ' + fmtDur(r.stats.loadMs) : ''}`, 'dim');
@@ -570,7 +572,7 @@
           const small = Engine.estTokens(JSON.stringify(lean.cfg)), big = Engine.estTokens(Engine.filesBlock(files));
           card.log('coder', `Lean edit: sending only the tuning block (~${fmtTok(small)} tokens instead of ~${fmtTok(big)})`);
           try {
-            const r = await call('coder', Engine.tuneMessages(lean.cfg, args.request, S.p.type), card, { maxOut: Math.max(700, small * 2 + 300), temperature: 0.3, format: 'json' });
+            const r = await call('coder', Engine.tuneMessages(lean.cfg, args.request, S.p.type), card, { model: leanModel(), maxOut: Math.max(700, small * 2 + 300), temperature: 0.3, format: 'json' });
             lastRaw = r.text; const m = Engine.mergeCfg(lean.cfg, Engine.parseJson(r.text));
             if (m && m.changed.length) { files = { ...files, [lean.path]: Recipes.setCfg(files[lean.path], m.cfg) }; entry.text = 'Lean edit — changed ' + m.changed.slice(0, 8).join(', ') + '.'; message = args.request; card.log('coder', 'Changed ' + m.changed.join(', '), 'ok'); }
             else { card.log('coder', m ? 'No tuning value covers that — using a normal patch' : 'That needs new code — using a normal patch', 'warn'); lean = null; }
@@ -1241,10 +1243,12 @@
     const body = `
       <div class="fset"><h3>Ollama</h3>
         <div class="field"><label>Server address</label><div class="row"><input class="inp" id="sUrl" value="${esc(s.ollamaUrl)}" placeholder="http://127.0.0.1:11434"><button class="btn" data-s="test">Test</button></div>
-        <span class="hint" id="sUrlHint">${o.ok ? '✅ Connected · Ollama ' + esc(o.version || '') : '❌ ' + esc(o.error || 'Not reachable')}. The studio talks to Ollama for you, so your phone only needs to reach this studio.</span></div></div>
+        <span class="hint" id="sUrlHint">${o.ok ? '✅ Connected · Ollama ' + esc(o.version || '') : '❌ ' + esc(o.error || 'Not reachable')}. The studio talks to Ollama for you, so your phone only needs to reach this studio.</span></div>
+        <div class="row wrap"><button class="btn sm" data-s="find">🔎 Find Ollama on this device &amp; Wi-Fi</button></div><div id="sFound" class="found"></div>
+        <p class="hint">Ollama on another PC (a gaming PC, or your PC while the studio runs on your phone in Termux)? On that PC set <code>OLLAMA_HOST=0.0.0.0</code> and restart Ollama, then press Find. <code>OLLAMA_ORIGINS</code> isn’t needed: browsers never talk to Ollama directly.</p></div>
       <div class="fset"><h3>Models</h3>
         <div class="two"><div class="field"><label>Main model (Coder &amp; Debugger)</label><select class="inp" id="sCode">${opts(s.codeModel)}</select></div>
-        <div class="field"><label>Fast model (Architect &amp; QA)</label><select class="inp" id="sFast">${opts(s.fastModel)}</select></div></div>
+        <div class="field"><label>Fast model (Architect, QA &amp; lean edits)</label><select class="inp" id="sFast">${opts(s.fastModel)}</select></div></div>
         ${ram ? `<p class="hint">This PC has ${fmtBytes(ram)} RAM — models bigger than ~${fmtBytes(ram * 0.55)} are skipped for auto-pick.</p>` : ''}
         <details class="roles"><summary>Per-role models (advanced)</summary><p class="hint">On 16 GB machines, using one model for every role avoids reload time between steps.</p><div class="two">
           ${['architect', 'coder', 'debugger', 'qa', 'critic'].map((r) => `<div class="field"><label>${ROLE[r][0]} ${ROLE[r][1]}</label><select class="inp" data-role="${r}">${opts(roles[r], true)}</select></div>`).join('')}</div></details>
@@ -1270,6 +1274,10 @@
         <label class="sw"><span><b>⚡ Start from starters</b><br><span class="muted" style="font-size:13px">When your idea matches a finished starter (shooter, runner, match-3, fishing, habit tracker…), the AI only re-themes and adjusts it. Roughly 4–6× fewer tokens than writing from scratch.</span></span><input type="checkbox" id="sStarters" ${s.useStarters !== false ? 'checked' : ''}></label>
         <label class="sw"><span><b>🎛 Lean edits</b><br><span class="muted" style="font-size:13px">Requests like “make it faster” or “blue theme” send only the tuning block (~300 tokens) instead of the whole file. Falls back to a normal patch when code is needed.</span></span><input type="checkbox" id="sLean" ${s.leanEdits !== false ? 'checked' : ''}></label>
         <label class="sw"><span><b>Skip “thinking”</b><br><span class="muted" style="font-size:13px">Reasoning models (qwen3, deepseek-r1…) answer directly. Saves lots of tokens and time.</span></span><input type="checkbox" id="sNoThink" ${s.noThink ? 'checked' : ''}></label></div>
+      <div class="fset"><h3>Updates</h3>
+        <div class="row wrap"><span class="grow">Diddler’s Forge <b>v${esc((S.health && S.health.version) || '?')}</b></span><button class="btn sm" data-s="upd-check">Check for updates</button></div>
+        <div id="sUpd" class="upd"></div>
+        <p class="hint">Your projects, versions and settings live in <code>data/</code> and are never touched by an update. Download installs keep a backup of every replaced file in <code>data/backups/</code>.</p></div>
       <div class="fset"><h3>Phone</h3>${lan.length ? lan.map((l) => `<div class="lan"><span class="grow">${esc(l)}</span><button class="btn sm" data-s="copy" data-v="${esc(l)}">Copy</button></div>`).join('') : '<p class="muted">No Wi-Fi address found.</p>'}
         <p class="muted" style="font-size:13px">Open that address in Chrome on your phone (same Wi-Fi). ${S.health && S.health.needsPin ? 'PIN protection is on.' : 'Tip: start the studio with a PIN on shared Wi-Fi — it also unlocks the terminal from your phone.'}</p></div>`;
     const m = modal('⚙︎ Settings', body, { wide: true, foot: '<button class="btn ghost" data-x>Close</button><button class="btn primary" data-s="save">Save</button>' });
@@ -1281,6 +1289,8 @@
         const oo = S.health.ollama; q('#sUrlHint').textContent = oo.ok ? '✅ Connected · Ollama ' + (oo.version || '') : '❌ ' + (oo.error || 'Not reachable');
         if (oo.ok) { await loadModels(); q('#sCode').innerHTML = opts(S.settings.codeModel); q('#sFast').innerHTML = opts(S.settings.fastModel); }
       }
+      if (k === 'find') findOllamaInto(q('#sFound'), b, (url) => { q('#sUrl').value = url; q('[data-s="test"]').click(); });
+      if (k === 'upd-check') checkUpdates(q('#sUpd'), b);
       if (k === 'sugg') q('#sPull').value = b.dataset.n;
       if (k === 'copy' && navigator.clipboard) navigator.clipboard.writeText(b.dataset.v).then(() => toast('Copied'));
       if (k === 'pull') pullModel(q('#sPull').value.trim(), q, opts);
@@ -1319,6 +1329,63 @@
     } catch (e) { txt.textContent = '❌ ' + e.message.slice(0, 200); }
   }
 
+  // ---------- find Ollama on the network ----------
+  async function findOllamaInto(box, btn, use) {
+    btn.disabled = true; const label = btn.textContent; btn.textContent = '🔎 Looking…';
+    box.innerHTML = '<p class="muted small">Checking this device and your Wi-Fi (takes a few seconds)…</p>';
+    try {
+      const r = await api('/find-ollama');
+      box.innerHTML = r.found.length ? r.found.map((f) => `<div class="lan"><span class="grow">${f.thisMachine ? '🖥️ This machine' : '📡 ' + esc(new URL(f.url).hostname)} · Ollama ${esc(f.version)} · ${f.models} model${f.models === 1 ? '' : 's'}${f.current ? ' · <b>in use</b>' : ''}</span>${f.current ? '' : `<button class="btn sm primary" data-use="${esc(f.url)}">Use</button>`}</div>`).join('')
+        : `<p class="muted small">No Ollama found on ${r.subnets.length ? 'this device or ' + r.subnets.map((x) => esc(x) + '.x').join(', ') : 'this device. Your Wi-Fi address is hidden here, so type the PC’s address above, e.g. http://192.168.1.50:11434'}. Is it running? On another PC, set <code>OLLAMA_HOST=0.0.0.0</code> there and allow port 11434 in its firewall.</p>`;
+      box.querySelectorAll('[data-use]').forEach((u) => u.addEventListener('click', () => use(u.dataset.use)));
+    } catch (e) { box.innerHTML = '<p class="muted small">❌ ' + esc(e.message) + '</p>'; }
+    btn.disabled = false; btn.textContent = label;
+  }
+
+  // ---------- studio updates ----------
+  async function checkUpdates(box, btn) {
+    if (btn) btn.disabled = true;
+    box.innerHTML = '<p class="muted small">Checking GitHub…</p>';
+    try {
+      const u = await api('/update'); localStorage.setItem('acs:updCheck', today());
+      if (u.error) { box.innerHTML = '<p class="muted small">❌ ' + esc(u.error) + '</p>'; return; }
+      if (!u.available) { box.innerHTML = '<p class="muted small">✅ You have the newest version.</p>'; return; }
+      const can = S.health && S.health.terminal;
+      box.innerHTML = `<div class="card upd-card"><b>v${esc(u.latest)} is ready</b>${u.behind ? ` <span class="muted">(${u.behind} change${u.behind > 1 ? 's' : ''})</span>` : ''}
+        ${u.notes && u.notes.length ? '<ul class="small">' + u.notes.slice(0, 8).map((n) => '<li>' + esc(n) + '</li>').join('') + '</ul>' : ''}
+        ${u.dirty && u.dirty.length ? '<p class="warn-note">Studio files were changed on this PC (' + esc(u.dirty.slice(0, 3).join(', ')) + '). Undo or commit them before updating.</p>' : ''}
+        ${can ? '<button class="btn primary sm" data-upd="apply">⬇ Update now</button>' : '<p class="muted small">Install it from the PC running the studio (or start the studio with a PIN to update from your phone).</p>'}</div>`;
+      const a = box.querySelector('[data-upd="apply"]'); if (a) a.addEventListener('click', () => applyUpdate(box, a));
+    } catch (e) { box.innerHTML = '<p class="muted small">❌ ' + esc(e.message) + '</p>'; }
+    finally { if (btn) btn.disabled = false; }
+  }
+  async function applyUpdate(box, btn) {
+    if (S.busy) { toast('Wait for the current build to finish first', 'bad'); return; }
+    btn.disabled = true; btn.textContent = 'Updating…';
+    try {
+      const r = await api('/update', { method: 'POST' });
+      if (!r.updated) { box.innerHTML = '<p class="muted small">✅ ' + esc(r.message || 'Already up to date') + '</p>'; return; }
+      box.innerHTML = `<div class="card upd-card"><b>✅ ${esc(r.message)}</b><p class="muted small">Restart the studio to finish. Your projects are safe.</p><button class="btn primary sm" data-upd="restart">↻ Restart now</button></div>`;
+      box.querySelector('[data-upd="restart"]').addEventListener('click', () => restartStudio());
+    } catch (e) { btn.disabled = false; btn.textContent = '⬇ Update now'; toast(e.message, 'bad', 6000); }
+  }
+  async function restartStudio() {
+    try { await api('/restart', { method: 'POST' }); } catch (e) { toast(e.message, 'bad'); return; }
+    document.body.insertAdjacentHTML('beforeend', '<div class="restart-veil"><div>↻ Restarting Diddler’s Forge…</div></div>');
+    const t0 = Date.now(); await new Promise((r) => setTimeout(r, 1500));
+    for (;;) {
+      try { const h = await fetch('/api/health', { cache: 'no-store' }); if (h.ok) { location.reload(); return; } } catch (e) { /* still restarting */ }
+      if (Date.now() - t0 > 45000) { document.querySelector('.restart-veil div').textContent = 'The studio didn’t come back. Start it again with the desktop icon.'; return; }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  /** Once a day, quietly look for a studio update and mention it. */
+  async function dailyUpdateCheck() {
+    if (localStorage.getItem('acs:updCheck') === today() || !(S.health && S.health.local)) return;
+    localStorage.setItem('acs:updCheck', today());
+    try { const u = await api('/update'); if (u.available) toast('Diddler’s Forge v' + u.latest + ' is out. Settings → Updates', 'good', 6000); } catch (e) { /* offline */ }
+  }
+
   // ---------- actions ----------
   function syncAutopilot() { const t = $('#apToggle'); if (t) t.checked = S.settings.autopilot !== false; }
   function setModeSeg() { $$('#modeSeg button').forEach((b) => b.classList.toggle('active', b.dataset.mode === S.mode)); $('#modeHint').textContent = MODE_HINTS[S.mode]; }
@@ -1326,6 +1393,7 @@
     home: () => { location.hash = ''; },
     settings: (b, e) => { e.preventDefault(); openSettings(); },
     usage: () => openMonitor(),
+    'find-ollama': async () => { await openSettings(); const el = document.querySelector('[data-s="find"]'); if (el) el.click(); },
     logs: async () => { const t = await api('/logs?tail=300'); modal('📜 Studio log', `<pre class="logpre">${esc(t || 'Empty')}</pre>`, { wide: true }); },
     shutdown: async () => { if (await confirmBox('Stop the studio?', '<p class="muted">The server on this PC stops. Start it again with the desktop icon.</p>', 'Stop', true)) { await api('/shutdown', { method: 'POST' }).catch(() => {}); document.body.innerHTML = '<p style="padding:40px;font:16px system-ui;color:#ccc">Studio stopped. You can close this tab.</p>'; } },
     build: () => { const idea = $('#ideaInput').value.trim(); if (!idea) { $('#ideaInput').focus(); toast('Describe your idea first ✍️'); return; } newBuild(idea, S.type, S.mode); },
@@ -1491,7 +1559,7 @@
       await refreshHealth(); S.settings = await api('/settings');
       if (!localStorage.getItem('acs:mode') && S.settings.mode) { S.mode = S.settings.mode; setModeSeg(); }
     } catch (e) { toast('Studio server not reachable: ' + e.message, 'bad', 6000); }
-    syncAutopilot(); loadModels(); loadUsage(); route();
+    syncAutopilot(); loadModels(); loadUsage(); route(); setTimeout(dailyUpdateCheck, 4000);
     setInterval(async () => { const was = S.health && S.health.ollama && S.health.ollama.ok; await refreshHealth(); if (!was && S.health.ollama.ok) loadModels(); }, 20000);
     if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
   }
